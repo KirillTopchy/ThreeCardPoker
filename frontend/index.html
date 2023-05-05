@@ -50,7 +50,7 @@
         console.log(message);
         messages.innerHTML += `<p>Sent: ${message}</p>`;
         messageInput.value = '';
-        ws.send(JSON.stringify({ msg: message }));
+        ws.send(JSON.stringify({ Message: { msg: message } }));
     });
 
 </script>
