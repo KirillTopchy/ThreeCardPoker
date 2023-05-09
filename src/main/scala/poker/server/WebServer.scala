@@ -12,15 +12,16 @@ import java.util.UUID
 
 object WebServer extends IOApp {
   private def httpApp(
-                       refMessageQueues: Ref[IO, Map[UUID, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
-                       deck: Deck[IO]
-                     )(wsb: WebSocketBuilder2[IO]): HttpApp[IO] = {
+    refMessageQueues: Ref[IO, Map[UUID, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
+    deck: Deck[IO]
+  )(wsb: WebSocketBuilder2[IO]): HttpApp[IO] = {
     PokerRoutes.createRoute(wsb, refMessageQueues, deck)
   }.orNotFound
 
   override def run(args: List[String]): IO[ExitCode] =
     for {
-      refMessageQueues <- Ref.of[IO, Map[UUID, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]](Map.empty)
+      refMessageQueues <- Ref
+        .of[IO, Map[UUID, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]](Map.empty)
       deck <- Deck()
       _ <- EmberServerBuilder
         .default[IO]
