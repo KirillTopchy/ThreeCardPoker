@@ -3,6 +3,7 @@ package poker.server
 import cats.effect.kernel.Resource.ExitCase
 import cats.effect.std.Queue
 import cats.effect.{IO, Ref}
+import cats.implicits.toFoldableOps
 import com.typesafe.scalalogging.LazyLogging
 import fs2.{Pipe, Stream}
 import io.circe.jawn
@@ -14,15 +15,35 @@ import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import poker.domain.card.Deck
+import poker.domain.player.PlayerId
+import poker.server.ClientMessage.Message
 import poker.server.JsonCodec._
 
 import java.util.UUID
 
 object PokerRoutes extends LazyLogging {
 
+  private def process(
+    refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]]
+  ): IO[Unit] =
+    for {
+      messageQueues <- refMessageQueues.get
+      _ <- messageQueues.keys.toList.traverse_ { uuid =>
+        val (serverQueue, clientQueue) = messageQueues(uuid)
+        clientQueue.take
+          .flatMap {
+            case Message(msg) =>
+              if (msg.length > 5)
+                serverQueue.offer(ServerMessage.Message("First State"))
+              else
+                serverQueue.offer(ServerMessage.Message("Second State"))
+          }
+      }
+    } yield ()
+
   def createRoute(
     wsb: WebSocketBuilder2[IO],
-    refMessageQueues: Ref[IO, Map[UUID, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
+    refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
     deck: Deck[IO]
   ): HttpRoutes[IO] = HttpRoutes.of[IO] {
 
@@ -37,7 +58,7 @@ object PokerRoutes extends LazyLogging {
         queueIn  <- Queue.unbounded[IO, ClientMessage]
         queueOut <- Queue.unbounded[IO, ServerMessage]
 
-        _ <- refMessageQueues.update(_.updated(UUID.randomUUID(), (queueOut, queueIn)))
+        _ <- refMessageQueues.update(_.updated(PlayerId(UUID.randomUUID()), (queueOut, queueIn)))
 
         response <- wsb.build(
           // Sink, where the incoming WebSocket messages from the client are pushed to.
@@ -47,18 +68,10 @@ object PokerRoutes extends LazyLogging {
                 case Left(value) =>
                   logger.info(s"Failed to parse message: $value")
                 case Right(clientMessage) =>
-                  val serverMessage = ServerMessage.Message("AAA")
-                  queueIn.tryOffer(clientMessage).flatMap { sent =>
-                    if (sent) {
-                      queueOut.offer(serverMessage) *>
-                        logger.info(
-                          s"Message from client '$clientMessage' added to queueIn and queueOut."
-                        )
-                    } else {
-                      logger
-                        .info(s"Failed to add message from client '$clientMessage' to queueIn.")
-                    }
-                  }
+                  for {
+                    _ <- queueIn.offer(clientMessage)
+                    _ <- process(refMessageQueues)
+                  } yield ()
               }
             case _ => IO.unit
           },
