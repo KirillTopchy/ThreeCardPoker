@@ -1,69 +1,108 @@
 package poker.services
 
+import cats.effect.std.Queue
 import cats.effect.{IO, Ref}
+import cats.implicits.toFoldableOps
+import org.typelevel.log4cats.slf4j.Slf4jLogger
 import poker.domain.game.{GameId, GamePhase, GameState, Outcome}
-import poker.domain.player.{Decision, Hand, Player, PlayerState}
+import poker.domain.player.{Decision, Hand, Player, PlayerId, PlayerState}
+import poker.domain.card.{Card, Rank, Suit}
+import poker.server.{ClientMessage, ServerMessage}
+import poker.services.GameProcessingService.{DecisionAccepted, DecisionsFinished, GameJoined, GameResolved, GameStarted, PlayerCount, PlayersMoved, WaitForDecision}
 
 import java.util.UUID
-
-final case class DecisionAccepted()
-final case class DecisionsFinished()
-final case class GameJoined()
-final case class GameResolved ()
-final case class GameStarted (gameId : GameId)
-final case class PlayersMoved ()
-final case class WaitForDecision ()
 
 sealed trait GameProcessingErrors
 final case class WrongGamePhaseError(message: String) extends GameProcessingErrors
 
-case class GameProcessingService(gameState: Ref[IO, GameState]) {
+class GameProcessingService(gameState: Ref[IO, GameState],
+                            refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]]) {
+
+  /**
+   * Should be called only once in the whole application
+   */
+  def firstEverWaitingForPlayers(): IO[Unit] =
+    gameState.update { state =>
+      state.gamePhase match {
+        case _: GamePhase.WaitingForPlayers => state
+        case _                              => state.copy(gamePhase = GamePhase.WaitingForPlayers(List.empty[Player]))
+      }
+    }
+
+  def joinedPlayersBeforeGame(): IO[Either[WrongGamePhaseError, PlayerCount]] =
+    gameState.get.map { state =>
+      state.gamePhase match {
+        case GamePhase.WaitingForPlayers(players) =>
+          Right(PlayerCount(players.size))
+        case other =>
+          Left(
+            WrongGamePhaseError(
+              s"Joined players count should be checked only during ${GamePhase.WaitingForPlayers} phase, current game phase: $other)"
+            )
+          )
+      }
+    }
 
   def joinGame(player: Player): IO[Either[WrongGamePhaseError, GameJoined]] =
-    gameState.modify { state =>
-      state.gamePhase match {
-        case GamePhase.WaitingForPlayers =>
-          val updatedState = state.copy(players = state.players + ((player, PlayerState.Playing)))
-          (updatedState, Right(GameJoined()))
-        case phase =>
-          (
-            state,
-            Left(
-              WrongGamePhaseError(
-                s"Cannot join game when game phase is not waiting for players (current game phase: $phase)"
+    for {
+      logger <- Slf4jLogger.fromName[IO]("join-logger")
+      result <- gameState.modify { state =>
+        state.gamePhase match {
+          case GamePhase.WaitingForPlayers(players) =>
+            val updatedState =
+              state.copy(gamePhase = GamePhase.WaitingForPlayers(players :+ player))
+            (updatedState, Right(GameJoined()))
+          case phase =>
+            (
+              state,
+              Left(
+                WrongGamePhaseError(
+                  s"Cannot join game when game phase is not waiting for players (current game phase: $phase)"
+                )
               )
             )
-          )
+        }
       }
-    }
+      _ <- GameServerMessageService.test(refMessageQueues)
+      _ <- logger.info(result.toString)
+    } yield result
 
-  def startNewGame(playerCards: Hand): IO[Either[WrongGamePhaseError, GameStarted]] =
-    gameState.modify { state =>
-      state.gamePhase match {
-        case GamePhase.WaitingForPlayers =>
-          val gameId = GameId(UUID.randomUUID)
-          val updatedState =
-            state.copy(gamePhase = GamePhase.Started(gameId, playerCards, state.players.keys.toList)
-            )
-          (updatedState, Right(GameStarted(gameId)))
-        case phase =>
-          (
-            state,
-            Left(
-              WrongGamePhaseError(
-                s"Cannot start game when game phase is not waiting for players (current game phase: $phase)"
+  def startNewGame(
+                    playerHand: Hand = Hand(List(Card.KD, Card.KS, Card.KH))
+                  ): IO[Either[WrongGamePhaseError, GameStarted]] =
+    for {
+      logger <- Slf4jLogger.fromName[IO]("start-game-logger")
+      result <- gameState.modify { state =>
+        state.gamePhase match {
+          case GamePhase.WaitingForPlayers(players) =>
+            val gameId = GameId(UUID.randomUUID)
+
+            val updatedState =
+              state.copy(gamePhase = GamePhase.Started(gameId, playerHand, players))
+
+            (updatedState, Right(GameStarted(gameId)))
+          case phase =>
+            (
+              state,
+              Left(
+                WrongGamePhaseError(
+                  s"Cannot start game when game phase is not waiting for players (current game phase: $phase)"
+                )
               )
             )
-          )
+        }
       }
-    }
+      _ <- logger.info(result.toString)
+    } yield result
 
   def waitForDecisions(): IO[Either[WrongGamePhaseError, WaitForDecision]] =
     gameState.modify { state =>
       state.gamePhase match {
         case GamePhase.Started(gameId, playerCards, players) =>
           val updatedState =
-            state.copy(gamePhase = GamePhase.WaitingForDecisions(gameId, playerCards, players))
+            state.copy(gamePhase =
+              GamePhase.WaitingForDecisions(gameId, playerCards, players, Nil, Nil)
+            )
           (updatedState, Right(WaitForDecision()))
         case phase =>
           (
@@ -83,9 +122,19 @@ case class GameProcessingService(gameState: Ref[IO, GameState]) {
                     ): IO[Either[WrongGamePhaseError, DecisionAccepted]] =
     gameState.modify { state =>
       state.gamePhase match {
-        case GamePhase.WaitingForDecisions(_, _, _) =>
-          val updatedState =
-            state.copy(players = state.players + ((player, PlayerState.DecisionMade(decision))))
+        case GamePhase.WaitingForDecisions(gameId, hand, totalPlayers, willPlay, willFold) =>
+          val updatedState = {
+            decision match {
+              case Decision.Play =>
+                state.copy(gamePhase = GamePhase
+                  .WaitingForDecisions(gameId, hand, totalPlayers, willPlay :+ player, willFold)
+                )
+              case Decision.Fold =>
+                state.copy(gamePhase = GamePhase
+                  .WaitingForDecisions(gameId, hand, totalPlayers, willPlay, willFold :+ player)
+                )
+            }
+          }
           (updatedState, Right(DecisionAccepted()))
         case phase =>
           (
@@ -102,14 +151,20 @@ case class GameProcessingService(gameState: Ref[IO, GameState]) {
   def decisionsFinished(): IO[Either[WrongGamePhaseError, DecisionsFinished]] =
     gameState.modify { state =>
       state.gamePhase match {
-        case GamePhase.WaitingForDecisions(gameId, playerCards, _) =>
-          val played = state.players
-            .filter { case (_, state) => state == PlayerState.DecisionMade(Decision.Play) }
-            .keys
-            .toList
-          val folded = state.players.keys.toList.diff(played)
+        case GamePhase.WaitingForDecisions(
+        gameId,
+        playerCards,
+        totalPlayers,
+        decidedToPlay,
+        decidedToFold
+        ) =>
+          val autoFolded = totalPlayers.diff(decidedToPlay ++ decidedToFold)
+
+          val totalFolded = decidedToFold ++ autoFolded
           val updatedState =
-            state.copy(gamePhase = GamePhase.DecisionsAccepted(gameId, playerCards, played, folded))
+            state.copy(gamePhase =
+              GamePhase.DecisionsAccepted(gameId, playerCards, decidedToPlay, totalFolded)
+            )
           (updatedState, Right(DecisionsFinished()))
         case phase =>
           (
@@ -123,26 +178,17 @@ case class GameProcessingService(gameState: Ref[IO, GameState]) {
       }
     }
 
-  def resolveGame(dealerHand: Hand): IO[Either[WrongGamePhaseError, GameResolved]] =
+  def resolveGame(
+                   dealerHand: Hand = Hand(List(Card.AH, Card.AS, Card.AD))
+                 ): IO[Either[WrongGamePhaseError, GameResolved]] =
     gameState.modify { state =>
       state.gamePhase match {
-        case GamePhase.DecisionsAccepted(gameId, playerCards, _, _) =>
-          val gameOutcome = HandComparisonUtil.compare(playerCards, dealerHand)
+        case GamePhase.DecisionsAccepted(gameId, playerHand, played, folded) =>
+          val gameOutcome = HandComparisonUtil.compare(playerHand, dealerHand)
 
-          val playerOutcomes: Map[Player, PlayerState] = state.players.map {
-            case (p, playerState) =>
-              val playerOutcomeState = playerState match {
-                case PlayerState.DecisionMade(decision) =>
-                  PlayerState.OutcomeGiven(gameOutcome, decision)
-                case _ =>
-                  PlayerState.OutcomeGiven(Outcome.Folded, Decision.Fold)
-              }
-              (p, playerOutcomeState)
-          }
-
-          val updatedState = state.copy(
-            players = playerOutcomes,
-            gamePhase = GamePhase.Resolved(gameId, playerCards, dealerHand, gameOutcome)
+          //TODO: think of how to present player Outcome in state and how result will be delivered to each player
+          val updatedState = state.copy(gamePhase =
+            GamePhase.Resolved(gameId, playerHand, dealerHand, gameOutcome, played, folded)
           )
           (updatedState, Right(GameResolved()))
         case phase =>
@@ -157,14 +203,13 @@ case class GameProcessingService(gameState: Ref[IO, GameState]) {
       }
     }
 
-  def movePlayersToNextGame(): IO[Either[WrongGamePhaseError, PlayersMoved]] =
+  def waitNextGamePlayers(): IO[Either[WrongGamePhaseError, PlayersMoved]] =
     gameState.modify { state =>
       state.gamePhase match {
-        case GamePhase.Resolved(_, _, _, _) =>
-          val updatedState = state.copy(
-            gamePhase = GamePhase.WaitingForPlayers,
-            players = state.players.view.mapValues(_ => PlayerState.Playing).toMap
-          )
+        case GamePhase.Resolved(_, _, _, _, played, folded) =>
+          val playersForNextRound = played ++ folded
+          val updatedState =
+            state.copy(gamePhase = GamePhase.WaitingForPlayers(playersForNextRound))
           (updatedState, Right(PlayersMoved()))
         case phase =>
           (
@@ -177,4 +222,20 @@ case class GameProcessingService(gameState: Ref[IO, GameState]) {
           )
       }
     }
+}
+
+object GameProcessingService {
+  final case class DecisionAccepted()
+  final case class DecisionsFinished()
+  final case class GameJoined()
+  final case class GameResolved()
+  final case class GameStarted(gameId: GameId)
+  final case class PlayersMoved()
+  final case class WaitForDecision()
+
+  final case class PlayerCount(value: BigDecimal) extends AnyVal
+
+  def apply(gameState: Ref[IO, GameState],
+            refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]])
+  = new GameProcessingService(gameState, refMessageQueues)
 }
