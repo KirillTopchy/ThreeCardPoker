@@ -48,9 +48,8 @@ class GameProcessingService(gameState: Ref[IO, GameState],
       logger <- Slf4jLogger.fromName[IO]("join-logger")
       result <- gameState.modify { state =>
         state.gamePhase match {
-          case GamePhase.WaitingForPlayers(players) =>
-            val updatedState =
-              state.copy(gamePhase = GamePhase.WaitingForPlayers(players :+ player))
+          case GamePhase.WaitingForPlayers(players) if !players.contains(player) =>
+            val updatedState = state.copy(gamePhase = GamePhase.WaitingForPlayers(players :+ player))
             (updatedState, Right(GameJoined()))
           case phase =>
             (
@@ -63,9 +62,10 @@ class GameProcessingService(gameState: Ref[IO, GameState],
             )
         }
       }
-      _ <- GameServerMessageService.test(refMessageQueues)
+      _ <- GameServerMessageService.playerJoined(refMessageQueues, result, playerId = player.id)
       _ <- logger.info(result.toString)
     } yield result
+
 
   def startNewGame(
                     playerHand: Hand = Hand(List(Card.KD, Card.KS, Card.KH))
@@ -119,34 +119,40 @@ class GameProcessingService(gameState: Ref[IO, GameState],
   def acceptDecision(
                       player: Player,
                       decision: Decision
-                    ): IO[Either[WrongGamePhaseError, DecisionAccepted]] =
-    gameState.modify { state =>
-      state.gamePhase match {
-        case GamePhase.WaitingForDecisions(gameId, hand, totalPlayers, willPlay, willFold) =>
-          val updatedState = {
-            decision match {
-              case Decision.Play =>
-                state.copy(gamePhase = GamePhase
-                  .WaitingForDecisions(gameId, hand, totalPlayers, willPlay :+ player, willFold)
-                )
-              case Decision.Fold =>
-                state.copy(gamePhase = GamePhase
-                  .WaitingForDecisions(gameId, hand, totalPlayers, willPlay, willFold :+ player)
-                )
+                    ): IO[Either[WrongGamePhaseError, DecisionAccepted]] = {
+    for{
+      logger <- Slf4jLogger.fromName[IO]("accept-decision-logger")
+      result <- gameState.modify { state =>
+        state.gamePhase match {
+          case GamePhase.WaitingForDecisions(gameId, hand, totalPlayers, willPlay, willFold) =>
+            val updatedState = {
+              decision match {
+                case Decision.Play =>
+                  state.copy(gamePhase = GamePhase
+                    .WaitingForDecisions(gameId, hand, totalPlayers, willPlay :+ player, willFold)
+                  )
+                case Decision.Fold =>
+                  state.copy(gamePhase = GamePhase
+                    .WaitingForDecisions(gameId, hand, totalPlayers, willPlay, willFold :+ player)
+                  )
+              }
             }
-          }
-          (updatedState, Right(DecisionAccepted()))
-        case phase =>
-          (
-            state,
-            Left(
-              WrongGamePhaseError(
-                s"Cannot accept decision when game phase is not waiting for decisions (current game phase: $phase)"
+            (updatedState, Right(DecisionAccepted()))
+          case phase =>
+            (
+              state,
+              Left(
+                WrongGamePhaseError(
+                  s"Cannot accept decision when game phase is not waiting for decisions (current game phase: $phase)"
+                )
               )
             )
-          )
+        }
       }
-    }
+      _ <- GameServerMessageService.decisionAccepted(refMessageQueues, decision)
+      _ <- logger.info(result.toString)
+    } yield result
+  }
 
   def decisionsFinished(): IO[Either[WrongGamePhaseError, DecisionsFinished]] =
     gameState.modify { state =>

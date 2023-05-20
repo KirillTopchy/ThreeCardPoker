@@ -20,10 +20,7 @@
 <h1>Welcome!</h1>
 <div id="clientMessages"></div>
 <form>
-<!--    <label for="message">Bet:</label>-->
-<!--    <input type="text" id="message" name="message" />-->
     <button id="join-button" type="submit">Join game</button>
-<!--    <button id="bet-button" type="submit">Place Bet</button>-->
     <button id="play-button" type="submit">Play</button>
     <button id="fold-button" type="submit">Fold</button>
 </form>
@@ -55,7 +52,7 @@
           serverMessages.innerHTML += `<p>Your Hand: ${cards}</p>`;
           serverMessages.innerHTML += `<p>Please make your decision Play/Fold</p>`;
         } else {
-          clientMessages.innerHTML += `<p>Received: ${messageModel}</p>`;
+<!--          clientMessages.innerHTML += `<p>Received: ${messageModel}</p>`;-->
           serverMessages.innerHTML += `<p>Received: ${messageModel}</p>`;
         }
       });
@@ -65,14 +62,42 @@
         ws.send(JSON.stringify({ Join: {} }));
       });
 
-      placeBetButton.addEventListener("click", event => {
+      playButton.addEventListener("click", event => {
         event.preventDefault();
-        const message = messageInput.value;
-        console.log(message);
-        messages.innerHTML += `<p>Sent: ${message}</p>`;
-        messageInput.value = "";
-        ws.send(JSON.stringify({ Bet: { amount: message } }));
+
+        let message = {
+          "PlayerDecision" : {
+            "decision" : {
+                "Play": {}
+            }
+          }
+        }
+
+        ws.send(JSON.stringify(message));
       });
+
+      foldButton.addEventListener("click", event => {
+        event.preventDefault();
+
+        let message = {
+          "PlayerDecision" : {
+            "decision" : {
+                "Fold": {}
+            }
+          }
+        }
+
+        ws.send(JSON.stringify(message));
+      });
+
+<!--      placeBetButton.addEventListener("click", event => {-->
+<!--        event.preventDefault();-->
+<!--        const message = messageInput.value;-->
+<!--        console.log(message);-->
+<!--        messages.innerHTML += `<p>Sent: ${message}</p>`;-->
+<!--        messageInput.value = "";-->
+<!--        ws.send(JSON.stringify({ Bet: { amount: message } }));-->
+<!--      });-->
 
       function parseCardsToString(cards) {
         if (!Array.isArray(cards)) {

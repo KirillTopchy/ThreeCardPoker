@@ -17,7 +17,7 @@ import org.typelevel.log4cats.slf4j.Slf4jLogger
 import poker.domain.card.Deck
 import poker.domain.game.GameState
 import poker.domain.player.{Decision, Hand, Player, PlayerId}
-import poker.server.ClientMessage.Join
+import poker.server.ClientMessage.{Join, PlayerDecision}
 import poker.server.JsonCodec._
 import poker.services.GameProcessingService
 
@@ -34,17 +34,10 @@ object PokerRoutes extends LazyLogging {
       messageQueues <- refMessageQueues.get
       gameProcessingService = GameProcessingService(refGameState, refMessageQueues)
       _ <- messageQueues.keys.toList.traverse_ { playerId =>
-        val (serverQueue, clientQueue) = messageQueues(playerId)
+        val (_, clientQueue) = messageQueues(playerId)
         clientQueue.take.flatMap {
-          case Join() =>
-            for {
-              _         <- gameProcessingService.joinGame(Player(playerId))
-
-            } yield ()
-          case _ =>
-            for {
-              _         <- gameProcessingService.acceptDecision(Player(playerId), Decision.Play)
-            } yield ()
+          case Join() => gameProcessingService.joinGame(Player(playerId))
+          case PlayerDecision(decision) => gameProcessingService.acceptDecision(Player(playerId), decision)
         }
       }
     } yield ()
