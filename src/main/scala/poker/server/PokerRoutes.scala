@@ -13,6 +13,7 @@ import org.http4s.dsl.io._
 import org.http4s.server.websocket.WebSocketBuilder2
 import org.http4s.websocket.WebSocketFrame
 import org.http4s.websocket.WebSocketFrame.Text
+import org.typelevel.log4cats.SelfAwareStructuredLogger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import poker.domain.card.Deck
 import poker.domain.game.GameState
@@ -23,31 +24,28 @@ import poker.services.GameProcessingService
 
 import java.util.UUID
 
-object PokerRoutes extends LazyLogging {
+case class PokerRoutes(
+  refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
+  refGameState: Ref[IO, GameState],
+  deck: Deck[IO],
+  gameProcessingService: GameProcessingService,
+  logger: SelfAwareStructuredLogger[IO]
+) {
 
-  private def process(
-                       refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
-                       refGameState: Ref[IO, GameState],
-                       deck: Deck[IO]
-                     ): IO[Unit] =
+  private def process: IO[Unit] =
     for {
       messageQueues <- refMessageQueues.get
-      gameProcessingService = GameProcessingService(refGameState, refMessageQueues)
       _ <- messageQueues.keys.toList.traverse_ { playerId =>
         val (_, clientQueue) = messageQueues(playerId)
         clientQueue.take.flatMap {
           case Join() => gameProcessingService.joinGame(Player(playerId))
-          case PlayerDecision(decision) => gameProcessingService.acceptDecision(Player(playerId), decision)
+          case PlayerDecision(decision) =>
+            gameProcessingService.acceptDecision(Player(playerId), decision)
         }
       }
     } yield ()
 
-  def createRoute(
-                   wsb: WebSocketBuilder2[IO],
-                   refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
-                   refGameState: Ref[IO, GameState],
-                   deck: Deck[IO]
-                 ): HttpRoutes[IO] = HttpRoutes.of[IO] {
+  def createRoute(wsb: WebSocketBuilder2[IO]): HttpRoutes[IO] = HttpRoutes.of[IO] {
 
     case GET -> Root / "poker" =>
       val pokerPipe: Pipe[IO, ServerMessage, WebSocketFrame] =
@@ -56,7 +54,6 @@ object PokerRoutes extends LazyLogging {
         }
 
       for {
-        logger   <- Slf4jLogger.fromName[IO]("poker-routes")
         queueIn  <- Queue.unbounded[IO, ClientMessage]
         queueOut <- Queue.unbounded[IO, ServerMessage]
 
@@ -72,7 +69,7 @@ object PokerRoutes extends LazyLogging {
                 case Right(clientMessage) =>
                   for {
                     _ <- queueIn.offer(clientMessage)
-                    _ <- process(refMessageQueues, refGameState, deck)
+                    _ <- process
                   } yield ()
               }
             case _ => IO.unit
