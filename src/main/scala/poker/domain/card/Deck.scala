@@ -6,6 +6,7 @@ import scala.util.Random
 sealed trait Deck[F[_]] {
   def drawCards(cardsCount: Int): F[List[Card]]
   def cardsLeft: F[Int]
+  def resetAndShuffle: F[Unit]
 }
 
 object Deck  {
@@ -24,6 +25,8 @@ object Deck  {
       } yield cards.take(count)
 
       override def cardsLeft: IO[Int] = ref.get.map(_.length)
+
+      override def resetAndShuffle: IO[Unit] = ref.update(_ => shuffleDeck()).void
     }
   }
 }
