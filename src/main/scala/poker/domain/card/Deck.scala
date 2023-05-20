@@ -1,10 +1,12 @@
 package poker.domain.card
 
 import cats.effect.{IO, Ref}
+import poker.domain.player.Hand
+
 import scala.util.Random
 
 sealed trait Deck[F[_]] {
-  def drawCards(cardsCount: Int): F[List[Card]]
+  def drawCards(isPlayerHand: Boolean): F[Hand]
   def cardsLeft: F[Int]
   def resetAndShuffle: F[Unit]
 }
@@ -19,10 +21,10 @@ object Deck  {
 
   def apply(): IO[Deck[IO]] = Ref.of[IO, List[Card]](shuffleDeck()).map { ref =>
     new Deck[IO] {
-      override def drawCards(count: Int): IO[List[Card]] = for {
-        cards <- ref.get
-        _ <- ref.update(_.drop(count))
-      } yield cards.take(count)
+      override def drawCards(isPlayerHand: Boolean): IO[Hand] = for {
+        cardDeck <- ref.get
+        cards = if (isPlayerHand) cardDeck.take(3) else cardDeck.slice(3, 6)
+      } yield Hand(cards, isPlayerHand)
 
       override def cardsLeft: IO[Int] = ref.get.map(_.length)
 

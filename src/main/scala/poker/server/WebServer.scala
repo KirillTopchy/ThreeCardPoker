@@ -32,7 +32,7 @@ object WebServer extends IOApp {
         .of[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]](Map.empty)
       refGameState          <- Ref.of[IO, GameState](GameState.empty)
       deck                  <- Deck()
-      gameProcessingService <- GameProcessingService.apply(refGameState, refMessageQueues).pure[IO]
+      gameProcessingService <- GameProcessingService.apply(refGameState, refMessageQueues, deck).pure[IO]
       gameEngine            <- GameEngineService.of(gameProcessingService)
       logger   <- Slf4jLogger.fromName[IO]("poker-routes")
       _ <- EmberServerBuilder

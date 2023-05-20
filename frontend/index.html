@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <html>
-<head>
+  <head>
     <meta charset="utf-8" />
     <title>3 Card Poker</title>
     <style>
@@ -15,19 +15,20 @@
         padding: 10px;
       }
     </style>
-</head>
-<body>
-<h1>Welcome!</h1>
-<div id="clientMessages"></div>
-<form>
-    <button id="join-button" type="submit">Join game</button>
-    <button id="play-button" type="submit">Play</button>
-    <button id="fold-button" type="submit">Fold</button>
-</form>
-<hr />
-<div id="serverMessages"></div>
+  </head>
 
-<script>
+  <body>
+    <h1>Welcome!</h1>
+    <div id="clientMessages"></div>
+    <form>
+      <button id="join-button" type="submit">Join game</button>
+      <button id="play-button" type="submit">Play</button>
+      <button id="fold-button" type="submit">Fold</button>
+    </form>
+    <hr />
+    <div id="serverMessages"></div>
+
+    <script>
       const clientMessages = document.getElementById("clientMessages");
       const serverMessages = document.getElementById("serverMessages");
       const messageInput = document.getElementById("message");
@@ -47,13 +48,15 @@
         const messageModel = receivedMessage.Message.msg;
 
         if (containsCard(messageModel)) {
-          const cardStrings = messageModel.replace(/\\/g, "");
-          const cards = parseCardsToString(JSON.parse(cardStrings));
-          serverMessages.innerHTML += `<p>Your Hand: ${cards}</p>`;
-          serverMessages.innerHTML += `<p>Please make your decision Play/Fold</p>`;
+          const cards = parseCardsToString(JSON.parse(messageModel));
+          if (JSON.parse(messageModel).isPlayerHand) {
+            serverMessages.innerHTML += `<p>Your Hand: ${cards}</p>`;
+            serverMessages.innerHTML += `<p>Please make your decision Play/Fold</p>`;
+          } else {
+            serverMessages.innerHTML += `<p>Dealer Hand: ${cards}</p>`;
+          }
         } else {
-<!--          clientMessages.innerHTML += `<p>Received: ${messageModel}</p>`;-->
-          serverMessages.innerHTML += `<p>Received: ${messageModel}</p>`;
+          serverMessages.innerHTML += `<p>${messageModel}</p>`;
         }
       });
 
@@ -66,12 +69,12 @@
         event.preventDefault();
 
         let message = {
-          "PlayerDecision" : {
-            "decision" : {
-                "Play": {}
+          PlayerDecision: {
+            decision: {
+              Play: {}
             }
           }
-        }
+        };
 
         ws.send(JSON.stringify(message));
       });
@@ -80,61 +83,64 @@
         event.preventDefault();
 
         let message = {
-          "PlayerDecision" : {
-            "decision" : {
-                "Fold": {}
+          PlayerDecision: {
+            decision: {
+              Fold: {}
             }
           }
-        }
+        };
 
         ws.send(JSON.stringify(message));
       });
 
-<!--      placeBetButton.addEventListener("click", event => {-->
-<!--        event.preventDefault();-->
-<!--        const message = messageInput.value;-->
-<!--        console.log(message);-->
-<!--        messages.innerHTML += `<p>Sent: ${message}</p>`;-->
-<!--        messageInput.value = "";-->
-<!--        ws.send(JSON.stringify({ Bet: { amount: message } }));-->
-<!--      });-->
+      //         < !--placeBetButton.addEventListener("click", event => {
+      // -->
+      //         < !--event.preventDefault(); -->
+      //         < !--        const message = messageInput.value; -->
+      //         < !--console.log(message); -->
+      //         < !--messages.innerHTML += `<p>Sent: ${message}</p>`; -->
+      //         < !--messageInput.value = ""; -->
+      //         < !--ws.send(JSON.stringify({ Bet: { amount: message } })); -->
+      //         < !--      }); -->
 
       function parseCardsToString(cards) {
-        if (!Array.isArray(cards)) {
-          throw new Error("Invalid input. 'cards' must be an array.");
+        try {
+          const parsedCards = cards.cards;
+          const cardStrings = parsedCards.map(card => {
+            const rankValue = card.rank.value;
+            const rankSymbol = card.rank.symbol;
+            const suitName = card.suit.name;
+            return `${rankSymbol}${suitName.charAt(0).toLowerCase()}`;
+          });
+
+          return cardStrings.join(", ");
+        } catch (error) {
+          return "";
         }
-
-        const cardStrings = cards.map(card => {
-          const rankValue = card.rank.value;
-          const rankSymbol = card.rank.symbol;
-          const suitName = card.suit.name;
-          return `${rankSymbol}${suitName.charAt(0).toLowerCase()}`;
-        });
-
-        return cardStrings.join(", ");
       }
 
       function containsCard(json) {
         try {
-          const cards = JSON.parse(json);
-          if (Array.isArray(cards)) {
-            return cards.some(card => {
-              const rank = card.rank;
-              const suit = card.suit;
-              return (
-                rank &&
-                suit &&
-                typeof rank.value === "number" &&
-                typeof rank.symbol === "string" &&
-                typeof suit.name === "string"
-              );
-            });
-          }
+          const cards = JSON.parse(json).cards;
+          return cards.some(card => {
+            const rank = card.rank;
+            const suit = card.suit;
+            return (
+              rank &&
+              suit &&
+              typeof rank.value === "number" &&
+              typeof rank.symbol === "string" &&
+              typeof suit.name === "string"
+            );
+          });
         } catch (error) {
           return false;
         }
-        return false;
+      }
+
+      function isPlayerCards(json) {
+        const isPlayer = JSON.parse(json).isPlayer;
       }
     </script>
-</body>
+  </body>
 </html>

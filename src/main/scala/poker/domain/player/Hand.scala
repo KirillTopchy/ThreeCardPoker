@@ -25,7 +25,7 @@ case object StraightFlush extends HandRank {
   override val handValue: Int = 6
 }
 
-final case class Hand (cards: List[Card]){
+final case class Hand (cards: List[Card], isPlayerHand: Boolean){
   val score: Int = getHandScore
 
   private def getHandScore: Int = {

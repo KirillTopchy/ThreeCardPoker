@@ -21,7 +21,7 @@ class GameEngineService(gameProcessingService: GameProcessingService)(logger: Lo
           if (count.value > 0) {
             gameProcessingService.startNewGame() *>
               gameProcessingService.waitForDecisions() *>
-              IO.sleep(10.seconds) *>
+              IO.sleep(5.seconds) *>
               gameProcessingService.decisionsFinished() *>
               IO.sleep(2.seconds) *>
               gameProcessingService.resolveGame() *>

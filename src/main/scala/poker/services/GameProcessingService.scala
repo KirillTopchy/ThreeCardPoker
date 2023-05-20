@@ -6,18 +6,9 @@ import cats.implicits.toFoldableOps
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import poker.domain.game.{GameId, GamePhase, GameState, Outcome}
 import poker.domain.player.{Decision, Hand, Player, PlayerId, PlayerState}
-import poker.domain.card.{Card, Rank, Suit}
+import poker.domain.card.{Card, Deck, Rank, Suit}
 import poker.server.{ClientMessage, ServerMessage}
-import poker.services.GameProcessingService.{
-  DecisionAccepted,
-  DecisionsFinished,
-  GameJoined,
-  GameResolved,
-  GameStarted,
-  PlayerCount,
-  PlayersMoved,
-  WaitForDecision
-}
+import poker.services.GameProcessingService.{DecisionAccepted, DecisionsFinished, GameJoined, GameResolved, GameStarted, PlayerCount, PlayersMoved, WaitForDecision}
 
 import java.util.UUID
 
@@ -27,7 +18,8 @@ final case class WrongGamePhaseError(message: String) extends GameProcessingErro
 //TODO player service containing methods that trigger join and make decision from here
 class GameProcessingService(
   gameState: Ref[IO, GameState],
-  refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]]
+  refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
+  deck: Deck[IO]
 ) {
 
   /**
@@ -79,10 +71,10 @@ class GameProcessingService(
       _ <- logger.info(result.toString)
     } yield result
 
-  def startNewGame(
-    playerHand: Hand = Hand(List(Card.KD, Card.KS, Card.KH))
-  ): IO[Either[WrongGamePhaseError, GameStarted]] =
+  def startNewGame(): IO[Either[WrongGamePhaseError, GameStarted]] =
     for {
+      _ <- deck.resetAndShuffle
+      playerHand <- deck.drawCards(isPlayerHand = true)
       logger <- Slf4jLogger.fromName[IO]("start-game-logger")
       result <- gameState.modify { state =>
         state.gamePhase match {
@@ -104,6 +96,7 @@ class GameProcessingService(
             )
         }
       }
+      _ <- GameServerMessageService.gameStarted(refMessageQueues, result, playerHand)
       _ <- logger.info(result.toString)
     } yield result
 
@@ -198,7 +191,7 @@ class GameProcessingService(
     }
 
   def resolveGame(
-    dealerHand: Hand = Hand(List(Card.AH, Card.AS, Card.AD))
+    dealerHand: Hand = Hand(List(Card.AH, Card.AS, Card.AD), isPlayerHand = false)
   ): IO[Either[WrongGamePhaseError, GameResolved]] =
     gameState.modify { state =>
       state.gamePhase match {
@@ -256,6 +249,7 @@ object GameProcessingService {
 
   def apply(
     gameState: Ref[IO, GameState],
-    refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]]
-  ) = new GameProcessingService(gameState, refMessageQueues)
+    refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
+    deck : Deck[IO]
+  ) = new GameProcessingService(gameState, refMessageQueues, deck)
 }
