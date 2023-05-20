@@ -1,58 +1,115 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="utf-8">
+    <meta charset="utf-8" />
     <title>3 Card Poker</title>
     <style>
-        #messages {
-            position: absolute;
-            top: 0;
-            right: 0;
-            width: 200px;
-            height: 100%;
-            overflow: auto;
-            border: 1px solid #ccc;
-            padding: 10px;
-        }
-
+      #messages {
+        position: absolute;
+        top: 0;
+        right: 0;
+        width: 200px;
+        height: 100%;
+        overflow: auto;
+        border: 1px solid #ccc;
+        padding: 10px;
+      }
     </style>
 </head>
 <body>
 <h1>Welcome!</h1>
-<h2>To start game type start</h2>
-<div id="messages"></div>
+<div id="clientMessages"></div>
 <form>
-    <label for="message">Message:</label>
-    <input type="text" id="message" name="message">
-    <button id="send-button" type="submit">Send</button>
+<!--    <label for="message">Bet:</label>-->
+<!--    <input type="text" id="message" name="message" />-->
+    <button id="join-button" type="submit">Join game</button>
+<!--    <button id="bet-button" type="submit">Place Bet</button>-->
+    <button id="play-button" type="submit">Play</button>
+    <button id="fold-button" type="submit">Fold</button>
 </form>
+<hr />
+<div id="serverMessages"></div>
 
 <script>
-    const messages = document.getElementById('messages');
-    const messageInput = document.getElementById('message');
-    const sendButton = document.getElementById('send-button');
-    const ws = new WebSocket("ws://127.0.0.1:9000/poker");
+      const clientMessages = document.getElementById("clienindextMessages");
+      const serverMessages = document.getElementById("serverMessages");
+      const messageInput = document.getElementById("message");
+      const joinButton = document.getElementById("join-button");
+      const placeBetButton = document.getElementById("bet-button");
+      const playButton = document.getElementById("play-button");
+      const foldButton = document.getElementById("fold-button");
+      const ws = new WebSocket("ws://127.0.0.1:9000/poker");
 
-    // add event listener for the WebSocket open event
-    ws.addEventListener('open', event => {
-    console.log('WebSocket connection opened');
-    });
+      // add event listener for the WebSocket open event
+      ws.addEventListener("open", event => {
+        console.log("WebSocket connection opened");
+      });
 
-    ws.addEventListener('message', event => {
-    console.log("IM HERE RECEIVE");
-    messages.innerHTML += `<p>Received: ${event.data}</p>`;
-    });
+      ws.addEventListener("message", event => {
+        const receivedMessage = JSON.parse(event.data);
+        const messageModel = receivedMessage.Message.msg;
 
-    sendButton.addEventListener('click', event => {
-        console.log("IM HERE SEND");
+        if (containsCard(messageModel)) {
+          const cardStrings = messageModel.replace(/\\/g, "");
+          const cards = parseCardsToString(JSON.parse(cardStrings));
+          serverMessages.innerHTML += `<p>Your Hand: ${cards}</p>`;
+          serverMessages.innerHTML += `<p>Please make your decision Play/Fold</p>`;
+        } else {
+          clientMessages.innerHTML += `<p>Received: ${messageModel}</p>`;
+          serverMessages.innerHTML += `<p>Received: ${messageModel}</p>`;
+        }
+      });
+
+      joinButton.addEventListener("click", event => {
+        event.preventDefault();
+        ws.send(JSON.stringify({ Join: {} }));
+      });
+
+      placeBetButton.addEventListener("click", event => {
         event.preventDefault();
         const message = messageInput.value;
         console.log(message);
         messages.innerHTML += `<p>Sent: ${message}</p>`;
-        messageInput.value = '';
-        ws.send(JSON.stringify({ Message: { msg: message } }));
-    });
+        messageInput.value = "";
+        ws.send(JSON.stringify({ Bet: { amount: message } }));
+      });
 
-</script>
+      function parseCardsToString(cards) {
+        if (!Array.isArray(cards)) {
+          throw new Error("Invalid input. 'cards' must be an array.");
+        }
+
+        const cardStrings = cards.map(card => {
+          const rankValue = card.rank.value;
+          const rankSymbol = card.rank.symbol;
+          const suitName = card.suit.name;
+          return `${rankSymbol}${suitName.charAt(0).toLowerCase()}`;
+        });
+
+        return cardStrings.join(", ");
+      }
+
+      function containsCard(json) {
+        try {
+          const cards = JSON.parse(json);
+          if (Array.isArray(cards)) {
+            return cards.some(card => {
+              const rank = card.rank;
+              const suit = card.suit;
+              return (
+                rank &&
+                suit &&
+                typeof rank.value === "number" &&
+                typeof rank.symbol === "string" &&
+                typeof suit.name === "string"
+              );
+            });
+          }
+        } catch (error) {
+          return false;
+        }
+        return false;
+      }
+    </script>
 </body>
 </html>
