@@ -28,7 +28,7 @@ object WebServer extends IOApp {
     clientMessageProcessingService: ClientMessageProcessingService,
     logger: SelfAwareStructuredLogger[IO]
   )(wsb: WebSocketBuilder2[IO]): HttpApp[IO] = {
-    val routes = new PokerRoutes(
+    val routes = PokerRoutes.apply(
       refOutMessageQueues,
       gameProcessingService,
       clientMessageProcessingService,

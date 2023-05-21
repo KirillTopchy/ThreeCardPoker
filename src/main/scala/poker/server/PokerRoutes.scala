@@ -66,3 +66,18 @@ class PokerRoutes(
       } yield response
   }
 }
+
+object PokerRoutes {
+  def apply(
+    refOutMessageQueues: Ref[IO, Map[PlayerId, Queue[IO, ServerMessage]]],
+    gameProcessingService: GameProcessingService,
+    clientMessageProcessingService: ClientMessageProcessingService,
+    logger: SelfAwareStructuredLogger[IO]
+  ) =
+    new PokerRoutes(
+      refOutMessageQueues,
+      gameProcessingService,
+      clientMessageProcessingService,
+      logger
+    )
+}
