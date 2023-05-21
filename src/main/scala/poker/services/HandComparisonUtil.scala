@@ -5,18 +5,16 @@ import poker.domain.player.{Hand, Pair}
 
 object HandComparisonUtil {
   def compare(playerHand: Hand, dealerHand: Hand): Outcome = {
-    val playerHandRank = playerHand.getRank
-    val dealerHandRank = dealerHand.getRank
-    if (playerHandRank.handValue > dealerHandRank.handValue)
+    if (playerHand.combination.rank > dealerHand.combination.rank)
       Outcome.PlayerWon
-    else if (playerHandRank.handValue < dealerHandRank.handValue)
+    else if (playerHand.combination.rank < dealerHand.combination.rank)
       Outcome.DealerWon
     else
       compareHandsWithEqualRanks(playerHand, dealerHand)
   }
 
   private def compareHandsWithEqualRanks(playerHand: Hand, dealerHand: Hand): Outcome =
-    playerHand.getRank match {
+    playerHand.combination match {
       case Pair => comparePairHands(playerHand, dealerHand)
       case _    => compareHandsByHighestCard(playerHand, dealerHand)
     }

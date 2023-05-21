@@ -47,18 +47,24 @@
         const receivedMessage = JSON.parse(event.data);
         const messageModel = receivedMessage.Message.msg;
 
+        console.log(messageModel);
+
         if (containsCard(messageModel)) {
-          const cards = parseCardsToString(JSON.parse(messageModel));
+          const parsedMessageModel = JSON.parse(messageModel);
+          const cards = parseCardsToString(parsedMessageModel);
+          const combination = parseCardsCombinationToString(parsedMessageModel);
 
           if (JSON.parse(messageModel).isPlayerHand) {
             serverMessages.innerHTML =
-              `<p>Your Hand: ${cards}</p>` + serverMessages.innerHTML;
+              `<p>Your Hand: ${cards}, Card combination: ${combination}</p>` +
+              serverMessages.innerHTML;
             serverMessages.innerHTML =
               `<p>Please make your decision Play/Fold</p>` +
               serverMessages.innerHTML;
           } else {
             serverMessages.innerHTML =
-              `<p>Dealer Hand: ${cards}</p>` + serverMessages.innerHTML;
+              `<p>Dealer Hand: ${cards}, Card combination: ${combination}</p>` +
+              serverMessages.innerHTML;
           }
         } else {
           if (messageModel.includes("Game with id")) {
@@ -66,8 +72,16 @@
               '<p style="width: 100%; border-top: 1px solid black;"></p>';
             serverMessages.innerHTML = lineSeparator + serverMessages.innerHTML;
           }
-          serverMessages.innerHTML =
-            `<p>${messageModel}</p>` + serverMessages.innerHTML;
+
+          gameOutcome = convertGameOutcomeToText(receivedMessage);
+          if (gameOutcome.length > 0) {
+            const textToshow = "Game outcome: " + gameOutcome;
+            serverMessages.innerHTML =
+              `<p>${textToshow}</p>` + serverMessages.innerHTML;
+          } else {
+            serverMessages.innerHTML =
+              `<p>${messageModel}</p>` + serverMessages.innerHTML;
+          }
         }
       });
 
@@ -114,9 +128,53 @@
       //         < !--ws.send(JSON.stringify({ Bet: { amount: message } })); -->
       //         < !--      }); -->
 
-      function parseCardsToString(cards) {
+      function parseCardsCombinationToString(json) {
         try {
-          const parsedCards = cards.cards;
+          const combination = json.combination;
+          let combinationString = "";
+
+          if (combination && typeof combination === "object") {
+            const combinationName = Object.keys(combination)[0];
+
+            const formattedCombinationName = combinationName
+              .replace(/([A-Z])/g, " $1")
+              .trim();
+
+            combinationString =
+              formattedCombinationName || "Unknown Combination";
+          }
+
+          return combinationString;
+        } catch (error) {
+          return "";
+        }
+      }
+
+      function convertGameOutcomeToText(json) {
+          const jsonString = JSON.stringify(json);
+
+          if(jsonString.includes("folded")){
+            return "";
+          }
+
+          if(jsonString.includes("PlayerWon")){
+            return "Player Won";
+          }
+
+          if(jsonString.includes("DealerWon")){
+            return "Dealer Won";
+          }
+
+          if(jsonString.includes("Tied")){
+            return "Tied";
+          }
+
+          return "";
+      }
+
+      function parseCardsToString(json) {
+        try {
+          const parsedCards = json.cards;
           const cardStrings = parsedCards.map(card => {
             const rankValue = card.rank.value;
             const rankSymbol = card.rank.symbol;

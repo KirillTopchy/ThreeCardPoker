@@ -1,12 +1,10 @@
 package poker.services
 
-import cats.effect.std.Queue
 import cats.effect.{IO, Ref}
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import poker.domain.game.{GameId, GamePhase, GameState, Outcome}
 import poker.domain.player.{Decision, Hand, Player, PlayerId}
 import poker.domain.card.Deck
-import poker.server.{ClientMessage, ServerMessage}
 import poker.services.GameProcessingService.{
   DecisionAccepted,
   DecisionsFinished,
@@ -24,7 +22,6 @@ import java.util.UUID
 sealed trait GameProcessingErrors
 final case class WrongGamePhaseError(message: String) extends GameProcessingErrors
 
-//TODO player service containing methods that trigger join and make decision from here
 class GameProcessingService(
   gameState: Ref[IO, GameState],
   gameServerMessageService: GameServerMessageService,
@@ -272,8 +269,6 @@ class GameProcessingService(
         state.gamePhase match {
           case GamePhase.DecisionsAccepted(gameId, playerHand, played, folded) =>
             val gameOutcome = HandComparisonUtil.compare(playerHand, dealerHand)
-
-            //TODO: think of how to present player Outcome in state and how result will be delivered to each player
             val updatedState = state.copy(gamePhase =
               GamePhase.Resolved(gameId, playerHand, dealerHand, gameOutcome, played, folded)
             )

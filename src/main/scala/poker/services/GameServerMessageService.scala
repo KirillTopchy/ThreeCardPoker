@@ -81,7 +81,7 @@ class GameServerMessageService(
       val played        = gameResolved.played
       val folded        = gameResolved.folded
       val playedMessage = outcome.asJson.noSpaces
-      val foldedMessage = s"Game outcome: $outcome, but You auto-folded, so you lose anyway ;)."
+      val foldedMessage = s"Game outcome: $outcome, but You folded, so its lose anyway ;)."
       sendMessageToAllPlayers(dealerHand.asJson.noSpaces) *>
         played.traverse_(player => sendMessageToSpecificPlayer(playedMessage, player.id)) *>
         folded.traverse_(player => sendMessageToSpecificPlayer(foldedMessage, player.id))

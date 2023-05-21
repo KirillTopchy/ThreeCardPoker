@@ -2,30 +2,31 @@ package poker.domain.player
 
 import poker.domain.card.Card
 
-sealed trait HandRank {
-  val handValue: Int
+sealed trait Combination {
+  val rank: Int
 }
 
-case object HighCard extends HandRank {
-  override val handValue: Int = 1
+case object HighCard extends Combination {
+  override val rank: Int = 1
 }
-case object Pair extends HandRank {
-  override val handValue: Int = 2
+case object Pair extends Combination {
+  override val rank: Int = 2
 }
-case object Flush extends HandRank {
-  override val handValue: Int = 3
+case object Flush extends Combination {
+  override val rank: Int = 3
 }
-case object Straight extends HandRank {
-  override val handValue: Int = 4
+case object Straight extends Combination {
+  override val rank: Int = 4
 }
-case object ThreeOfAKind extends HandRank {
-  override val handValue: Int = 5
+case object ThreeOfAKind extends Combination {
+  override val rank: Int = 5
 }
-case object StraightFlush extends HandRank {
-  override val handValue: Int = 6
+case object StraightFlush extends Combination {
+  override val rank: Int = 6
 }
 
 final case class Hand(cards: List[Card], isPlayerHand: Boolean) {
+  val combination: Combination = getRank
   private def sort: List[Card] =
     cards.sortBy(_.rank.value).reverse
 
@@ -34,7 +35,7 @@ final case class Hand(cards: List[Card], isPlayerHand: Boolean) {
     sortedCards.head.rank.value == 14 && sortedCards(1).rank.value == 3 && sortedCards.last.rank.value == 2
   }
 
-  def getRank: HandRank = {
+  private def getRank: Combination = {
     val sortedCards = this.sort
     val isPair      = this.cards.map(_.rank).distinct.length == 2
     val isFlush     = this.cards.map(_.suit).distinct.length == 1
