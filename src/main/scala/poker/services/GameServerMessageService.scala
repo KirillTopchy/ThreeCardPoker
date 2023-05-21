@@ -23,7 +23,11 @@ object GameServerMessageService {
   ): IO[Unit] =
     result.fold(
       _ => sendMessageToAllPlayers(s"Game already started", refMessageQueues),
-      _ => sendMessageToAllPlayers(playerHand.asJson.noSpaces, refMessageQueues)
+      gameStarted => {
+        val gameIdMessage = s"Game with ID: ${gameStarted.gameId} Started"
+        sendMessageToAllPlayers(gameIdMessage, refMessageQueues) *>
+        sendMessageToAllPlayers(playerHand.asJson.noSpaces, refMessageQueues)
+      }
     )
 
   private def sendMessageToAllPlayers(
@@ -68,13 +72,13 @@ object GameServerMessageService {
     result.fold(
       _ =>
         sendMessageToSpecificPlayer(
-          s"Player with id: ${playerId.value} cannot Join the Game",
+          s"Player with ID: ${playerId.value} cannot Join the Game",
           playerId,
           refMessageQueues
         ),
       _ =>
         sendMessageToSpecificPlayer(
-          s"Player with id: ${playerId.value} Joined the Game",
+          s"Player with ID: ${playerId.value} Joined the Game",
           playerId,
           refMessageQueues
         )
@@ -127,7 +131,7 @@ object GameServerMessageService {
         val played        = gameResolved.played
         val folded        = gameResolved.folded
         val playedMessage = outcome.asJson.noSpaces
-        val foldedMessage = s"Game outcome: $outcome, but You folded so you lose anyway ;)."
+        val foldedMessage = s"Game outcome: $outcome, but you auto-folded so you lose anyway ;)"
         sendMessageToAllPlayers(dealerHand.asJson.noSpaces, refMessageQueues) *>
           played.traverse_(
             player => sendMessageToSpecificPlayer(playedMessage, player.id, refMessageQueues)
