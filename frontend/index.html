@@ -45,6 +45,7 @@
 
       ws.addEventListener("message", event => {
         const receivedMessage = JSON.parse(event.data);
+        console.log(receivedMessage);
         const messageModel = receivedMessage.Message.msg;
 
         if (containsCard(messageModel)) {
@@ -104,6 +105,7 @@
       //         < !--      }); -->
 
       function parseCardsToString(cards) {
+        console.log(cards);
         try {
           const parsedCards = cards.cards;
           const cardStrings = parsedCards.map(card => {

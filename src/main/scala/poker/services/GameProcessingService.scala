@@ -8,7 +8,16 @@ import poker.domain.game.{GameId, GamePhase, GameState, Outcome}
 import poker.domain.player.{Decision, Hand, Player, PlayerId, PlayerState}
 import poker.domain.card.{Card, Deck, Rank, Suit}
 import poker.server.{ClientMessage, ServerMessage}
-import poker.services.GameProcessingService.{DecisionAccepted, DecisionsFinished, GameJoined, GameResolved, GameStarted, PlayerCount, PlayersMoved, WaitForDecision}
+import poker.services.GameProcessingService.{
+  DecisionAccepted,
+  DecisionsFinished,
+  GameJoined,
+  GameResolved,
+  GameStarted,
+  PlayerCount,
+  PlayersMoved,
+  WaitForDecision
+}
 
 import java.util.UUID
 
@@ -73,9 +82,9 @@ class GameProcessingService(
 
   def startNewGame(): IO[Either[WrongGamePhaseError, GameStarted]] =
     for {
-      _ <- deck.resetAndShuffle
+      _          <- deck.resetAndShuffle
       playerHand <- deck.drawCards(isPlayerHand = true)
-      logger <- Slf4jLogger.fromName[IO]("start-game-logger")
+      logger     <- Slf4jLogger.fromName[IO]("start-game-logger")
       result <- gameState.modify { state =>
         state.gamePhase match {
           case GamePhase.WaitingForPlayers(players) =>
@@ -165,7 +174,7 @@ class GameProcessingService(
       state.gamePhase match {
         case GamePhase.WaitingForDecisions(
             gameId,
-            playerCards,
+            playerHand,
             totalPlayers,
             decidedToPlay,
             decidedToFold
@@ -175,7 +184,7 @@ class GameProcessingService(
           val totalFolded = decidedToFold ++ autoFolded
           val updatedState =
             state.copy(gamePhase =
-              GamePhase.DecisionsAccepted(gameId, playerCards, decidedToPlay, totalFolded)
+              GamePhase.DecisionsAccepted(gameId, playerHand, decidedToPlay, totalFolded)
             )
           (updatedState, Right(DecisionsFinished()))
         case phase =>
@@ -190,30 +199,35 @@ class GameProcessingService(
       }
     }
 
-  def resolveGame(
-    dealerHand: Hand = Hand(List(Card.AH, Card.AS, Card.AD), isPlayerHand = false)
-  ): IO[Either[WrongGamePhaseError, GameResolved]] =
-    gameState.modify { state =>
-      state.gamePhase match {
-        case GamePhase.DecisionsAccepted(gameId, playerHand, played, folded) =>
-          val gameOutcome = HandComparisonUtil.compare(playerHand, dealerHand)
+  def resolveGame(): IO[Either[WrongGamePhaseError, GameResolved]] =
+    for {
+      logger     <- Slf4jLogger.fromName[IO]("resolve-game-logger")
+      _          <- deck.resetAndShuffle
+      dealerHand <- deck.drawCards(isPlayerHand = false)
+      result <- gameState.modify { state =>
+        state.gamePhase match {
+          case GamePhase.DecisionsAccepted(gameId, playerHand, played, folded) =>
+            val gameOutcome = HandComparisonUtil.compare(playerHand, dealerHand)
 
-          //TODO: think of how to present player Outcome in state and how result will be delivered to each player
-          val updatedState = state.copy(gamePhase =
-            GamePhase.Resolved(gameId, playerHand, dealerHand, gameOutcome, played, folded)
-          )
-          (updatedState, Right(GameResolved()))
-        case phase =>
-          (
-            state,
-            Left(
-              WrongGamePhaseError(
-                s"Cannot resolve the game when game phase is not decisions accepted (current game phase: $phase)"
+            //TODO: think of how to present player Outcome in state and how result will be delivered to each player
+            val updatedState = state.copy(gamePhase =
+              GamePhase.Resolved(gameId, playerHand, dealerHand, gameOutcome, played, folded)
+            )
+            (updatedState, Right(GameResolved(dealerHand, played, folded, gameOutcome)))
+          case phase =>
+            (
+              state,
+              Left(
+                WrongGamePhaseError(
+                  s"Cannot resolve the game when game phase is not decisions accepted (current game phase: $phase)"
+                )
               )
             )
-          )
+        }
       }
-    }
+      _ <- GameServerMessageService.gameResolved(refMessageQueues, result)
+      _ <- logger.info(result.toString)
+    } yield result
 
   def waitNextGamePlayers(): IO[Either[WrongGamePhaseError, PlayersMoved]] =
     gameState.modify { state =>
@@ -240,7 +254,12 @@ object GameProcessingService {
   final case class DecisionAccepted()
   final case class DecisionsFinished()
   final case class GameJoined()
-  final case class GameResolved()
+  final case class GameResolved(
+    dealerHand: Hand,
+    played: List[Player],
+    folded: List[Player],
+    gameOutcome: Outcome
+  )
   final case class GameStarted(gameId: GameId)
   final case class PlayersMoved()
   final case class WaitForDecision()
@@ -250,6 +269,6 @@ object GameProcessingService {
   def apply(
     gameState: Ref[IO, GameState],
     refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
-    deck : Deck[IO]
+    deck: Deck[IO]
   ) = new GameProcessingService(gameState, refMessageQueues, deck)
 }

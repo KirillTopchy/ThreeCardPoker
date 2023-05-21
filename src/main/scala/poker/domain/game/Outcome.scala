@@ -8,6 +8,6 @@ object Outcome {
   final case object DealerWon extends Outcome
 
   final case object Tied extends Outcome
-
-  final case object Folded extends Outcome
+//
+//  final case object Folded extends Outcome
 }
