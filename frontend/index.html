@@ -51,13 +51,13 @@
         if (containsCard(messageModel)) {
           const cards = parseCardsToString(JSON.parse(messageModel));
           if (JSON.parse(messageModel).isPlayerHand) {
-            serverMessages.innerHTML += `<p>Your Hand: ${cards}</p>`;
-            serverMessages.innerHTML += `<p>Please make your decision Play/Fold</p>`;
+            serverMessages.innerHTML = `<p>Your Hand: ${cards}</p>` + serverMessages.innerHTML;
+            serverMessages.innerHTML = `<p>Please make your decision Play/Fold</p>` + serverMessages.innerHTML;
           } else {
-            serverMessages.innerHTML += `<p>Dealer Hand: ${cards}</p>`;
+            serverMessages.innerHTML = `<p>Dealer Hand: ${cards}</p>` + serverMessages.innerHTML;
           }
         } else {
-          serverMessages.innerHTML += `<p>${messageModel}</p>`;
+          serverMessages.innerHTML = `<p>${messageModel}</p>` + serverMessages.innerHTML;
         }
       });
 

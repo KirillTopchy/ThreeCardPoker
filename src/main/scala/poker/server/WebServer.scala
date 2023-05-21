@@ -14,6 +14,8 @@ import poker.domain.game.GameState
 import poker.domain.player.PlayerId
 import poker.services.{GameEngineService, GameProcessingService, GameServerMessageService}
 
+import scala.concurrent.duration.DurationInt
+
 object WebServer extends IOApp {
   private def httpApp(
                        refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
@@ -40,6 +42,7 @@ object WebServer extends IOApp {
         .withHost(ipv4"127.0.0.1")
         .withPort(port"9000")
         .withHttpWebSocketApp(httpApp(refMessageQueues, refGameState, deck, gameProcessingService, logger))
+        .withIdleTimeout(365.days)
         .build
         .both(gameEngine.startGameEngine.background)
         .useForever
