@@ -4,7 +4,7 @@ import cats.effect.IO
 import org.typelevel.log4cats.SelfAwareStructuredLogger
 import poker.domain.player.{Player, PlayerId}
 import poker.server.ClientMessage
-import poker.server.ClientMessage.{Join, PlayerDecision}
+import poker.server.ClientMessage.{Bet, Join, PlayerDecision}
 
 class ClientMessageProcessingService(
   gameProcessingService: GameProcessingService,
@@ -18,6 +18,11 @@ class ClientMessageProcessingService(
         logger.info(s"Accepted decision $decision") *> gameProcessingService.acceptDecision(
           Player(playerId),
           decision
+        )
+      case Bet(amount)  =>
+        logger.info(s"Accepted bet $amount") *> gameProcessingService.acceptBet(
+          Player(playerId),
+          amount
         )
     }).void
 }

@@ -1,3 +1,3 @@
 package poker.domain.player
 
-case class PlayerBalance (winnings: BigDecimal, playable: BigDecimal)
+case class PlayerBalance (totalBalance: BigDecimal, playable: BigDecimal)

@@ -6,6 +6,8 @@ import poker.domain.game.{GameId, GamePhase, GameState, Outcome}
 import poker.domain.player.{Decision, Hand, Player, PlayerId}
 import poker.domain.card.Deck
 import poker.services.GameProcessingService.{
+  BetAccepted,
+  BetsFinished,
   DecisionAccepted,
   DecisionsFinished,
   GameJoined,
@@ -14,6 +16,7 @@ import poker.services.GameProcessingService.{
   PlayerCount,
   PlayerLeaved,
   PlayersMoved,
+  WaitForBet,
   WaitForDecision
 }
 
@@ -88,25 +91,27 @@ class GameProcessingService(
                 GamePhase.WaitingForPlayers(joinedPlayers.filterNot(p => p.id == playerId))
               )
             (updatedState, playerLeaved)
-          case GamePhase.Started(gameId, playerHand, playing) =>
+          case GamePhase.Started(gameId, playing) =>
             val updatedState =
               state.copy(gamePhase =
-                GamePhase.Started(gameId, playerHand, playing.filterNot(p => p.id == playerId))
+                GamePhase.Started(gameId, playing.filterNot(p => p.id == playerId))
               )
             (updatedState, playerLeaved)
           case GamePhase.WaitingForDecisions(
               gameId,
-              playerHand,
               totalPlayers,
+              playersWhoBet,
               willPlay,
-              willFold
+              willFold,
+              playerHand
               ) =>
             val updatedState = state.copy(gamePhase = GamePhase.WaitingForDecisions(
               gameId,
-              playerHand,
               totalPlayers.filterNot(p => p.id == playerId),
               willPlay.filterNot(p => p.id == playerId),
-              willFold.filterNot(p => p.id == playerId)
+              willFold.filterNot(p => p.id == playerId),
+              playersWhoBet.filterNot(p => p.id == playerId),
+              playerHand
             )
             )
             (updatedState, playerLeaved)
@@ -143,16 +148,14 @@ class GameProcessingService(
 
   def startNewGame(): IO[Either[WrongGamePhaseError, GameStarted]] =
     for {
-      _          <- deck.resetAndShuffle
-      playerHand <- deck.drawCards(isPlayerHand = true)
-      logger     <- Slf4jLogger.fromName[IO]("start-game-logger")
+      logger <- Slf4jLogger.fromName[IO]("start-game-logger")
       result <- gameState.modify { state =>
         state.gamePhase match {
           case GamePhase.WaitingForPlayers(players) =>
             val gameId = GameId(UUID.randomUUID)
 
             val updatedState =
-              state.copy(gamePhase = GamePhase.Started(gameId, playerHand, players))
+              state.copy(gamePhase = GamePhase.Started(gameId, players))
 
             (updatedState, Right(GameStarted(gameId)))
           case phase =>
@@ -166,30 +169,116 @@ class GameProcessingService(
             )
         }
       }
-      _ <- gameServerMessageService.gameStarted(result, playerHand)
+      _ <- gameServerMessageService.gameStarted(result)
       _ <- logger.info(result.toString)
     } yield result
 
-  def waitForDecisions(): IO[Either[WrongGamePhaseError, WaitForDecision]] =
-    gameState.modify { state =>
-      state.gamePhase match {
-        case GamePhase.Started(gameId, playerCards, players) =>
-          val updatedState =
-            state.copy(gamePhase =
-              GamePhase.WaitingForDecisions(gameId, playerCards, players, Nil, Nil)
-            )
-          (updatedState, Right(WaitForDecision()))
-        case phase =>
-          (
-            state,
-            Left(
-              WrongGamePhaseError(
-                s"Cannot wait for decisions when game phase is not started (current game phase: $phase)"
+  def waitForBets(): IO[Either[WrongGamePhaseError, WaitForBet]] =
+    for {
+      logger <- Slf4jLogger.fromName[IO]("wait-bet-logger")
+      result <- gameState.modify { state =>
+        state.gamePhase match {
+          case GamePhase.Started(gameId, players) =>
+            val updatedState =
+              state.copy(gamePhase = GamePhase.WaitingForBets(gameId, players, Nil))
+
+            (updatedState, Right(WaitForBet()))
+          case phase =>
+            (
+              state,
+              Left(
+                WrongGamePhaseError(
+                  s"Cannot wait for bet when game phase is not started (current game phase: $phase)"
+                )
               )
             )
-          )
+        }
       }
-    }
+      _ <- gameServerMessageService.waitingForBetsStarted(result)
+      _ <- logger.info(result.toString)
+
+    } yield result
+
+  def acceptBet(player: Player, bet: Double): IO[Either[WrongGamePhaseError, BetAccepted]] =
+    for {
+      logger <- Slf4jLogger.fromName[IO]("accept-bet-logger")
+      result <- gameState.modify { state =>
+        state.gamePhase match {
+          case GamePhase.WaitingForBets(gameId, allConnectedPlayers, playersWhoBet)
+              if allConnectedPlayers.exists(_.id == player.id) =>
+            val updatedState = state.copy(gamePhase = GamePhase
+              .WaitingForBets(gameId, allConnectedPlayers, playersWhoBet :+ player)
+            )
+            (updatedState, Right(BetAccepted()))
+
+          case phase =>
+            (
+              state,
+              Left(
+                WrongGamePhaseError(
+                  s"Cannot accept bet when game phase is not waiting for bets (current game phase: $phase)"
+                )
+              )
+            )
+        }
+      }
+      _ <- gameServerMessageService.betAccepted(player, bet, result)
+      _ <- logger.info(result.toString)
+    } yield result
+
+  def betsFinished(): IO[Either[WrongGamePhaseError, BetsFinished]] =
+    for {
+      logger     <- Slf4jLogger.fromName[IO]("bet-finished-logger")
+      _          <- deck.resetAndShuffle
+      playerHand <- deck.drawCards(isPlayerHand = true)
+      result <- gameState.modify { state =>
+        state.gamePhase match {
+          case GamePhase.WaitingForBets(gameId, totalPlayers, playersWhoBet) =>
+            val updatedState =
+              state.copy(gamePhase =
+                GamePhase.BetsAccepted(gameId, totalPlayers, playersWhoBet, playerHand)
+              )
+            (updatedState, Right(BetsFinished()))
+          case phase =>
+            (
+              state,
+              Left(
+                WrongGamePhaseError(
+                  s"Cannot finish bets game when game phase is not waiting for bets (current game phase: $phase)"
+                )
+              )
+            )
+        }
+      }
+      _ <- logger.info(result.toString)
+      _ <- gameServerMessageService.waitingForDecisionsStarted(result, playerHand)
+    } yield result
+
+  def waitForDecisions(): IO[Either[WrongGamePhaseError, WaitForDecision]] =
+    for {
+      logger <- Slf4jLogger.fromName[IO]("accept-bet-logger")
+      result <- gameState.modify { state =>
+        state.gamePhase match {
+          case GamePhase.BetsAccepted(gameId, totalPlayers, playersWhoBet, playerHand) =>
+            val updatedState =
+              state.copy(gamePhase = GamePhase
+                .WaitingForDecisions(gameId, totalPlayers, playersWhoBet, Nil, Nil, playerHand)
+              )
+            (updatedState, Right(WaitForDecision()))
+          case phase =>
+            (
+              state,
+              Left(
+                WrongGamePhaseError(
+                  s"Cannot wait for decisions when game phase is not bets finished (current game phase: $phase)"
+                )
+              )
+            )
+        }
+      }
+      _ <- logger.info(result.toString)
+
+    } yield result
 
   def acceptDecision(
     player: Player,
@@ -199,17 +288,39 @@ class GameProcessingService(
       logger <- Slf4jLogger.fromName[IO]("accept-decision-logger")
       result <- gameState.modify { state =>
         state.gamePhase match {
-          case GamePhase.WaitingForDecisions(gameId, hand, totalPlayers, willPlay, willFold)
-              if !willPlay.exists(_.id == player.id) &&
+          case GamePhase.WaitingForDecisions(
+              gameId,
+              totalPlayers,
+              playersWhoBet,
+              willPlay,
+              willFold,
+              playerHand
+              )
+              if playersWhoBet.exists(_.id == player.id) &&
+                !willPlay.exists(_.id == player.id) &&
                 !willFold.exists(_.id == player.id) =>
             val updatedState = decision match {
               case Decision.Play =>
                 state.copy(gamePhase = GamePhase
-                  .WaitingForDecisions(gameId, hand, totalPlayers, willPlay :+ player, willFold)
+                  .WaitingForDecisions(
+                    gameId,
+                    totalPlayers,
+                    playersWhoBet,
+                    willPlay :+ player,
+                    willFold,
+                    playerHand
+                  )
                 )
               case Decision.Fold =>
                 state.copy(gamePhase = GamePhase
-                  .WaitingForDecisions(gameId, hand, totalPlayers, willPlay, willFold :+ player)
+                  .WaitingForDecisions(
+                    gameId,
+                    totalPlayers,
+                    playersWhoBet,
+                    willPlay,
+                    willFold :+ player,
+                    playerHand
+                  )
                 )
             }
 
@@ -235,10 +346,11 @@ class GameProcessingService(
       state.gamePhase match {
         case GamePhase.WaitingForDecisions(
             gameId,
-            playerHand,
             totalPlayers,
+            playersWhoBet,
             decidedToPlay,
-            decidedToFold
+            decidedToFold,
+            playerHand
             ) =>
           val autoFolded = totalPlayers.diff(decidedToPlay ++ decidedToFold)
 
@@ -311,7 +423,9 @@ class GameProcessingService(
 
 object GameProcessingService {
   final case class DecisionAccepted()
+  final case class BetAccepted()
   final case class DecisionsFinished()
+  final case class BetsFinished()
   final case class GameJoined()
 
   final case class PlayerLeaved(playerd: PlayerId)
@@ -325,6 +439,7 @@ object GameProcessingService {
   final case class GameStarted(gameId: GameId)
   final case class PlayersMoved()
   final case class WaitForDecision()
+  final case class WaitForBet()
 
   final case class PlayerCount(value: BigDecimal) extends AnyVal
 

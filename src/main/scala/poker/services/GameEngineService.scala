@@ -15,13 +15,17 @@ class GameEngineService(gameProcessingService: GameProcessingService)(logger: Lo
 
   private def loop(): IO[Unit] =
     logger.info("Server is waiting for players") *>
-      IO.sleep(10.seconds) *>
+      IO.sleep(5.seconds) *>
       gameProcessingService.joinedPlayersBeforeGame().flatMap {
         case Right(count) =>
           if (count.value > 0) {
             gameProcessingService.startNewGame() *>
+              gameProcessingService.waitForBets() *>
+              IO.sleep(10.seconds) *>
+              gameProcessingService.betsFinished() *>
+              IO.sleep(2.seconds) *>
               gameProcessingService.waitForDecisions() *>
-              IO.sleep(5.seconds) *>
+              IO.sleep(10.seconds) *>
               gameProcessingService.decisionsFinished() *>
               IO.sleep(2.seconds) *>
               gameProcessingService.resolveGame() *>

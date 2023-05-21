@@ -7,23 +7,18 @@ import io.circe.syntax.EncoderOps
 import poker.domain.player.{Decision, Hand, Player, PlayerId}
 import poker.server.JsonCodec.{handCodec, outcomeCodec}
 import poker.server.ServerMessage
-import poker.services.GameProcessingService.{
-  DecisionAccepted,
-  GameJoined,
-  GameResolved,
-  GameStarted
-}
+import poker.services.GameProcessingService.{BetAccepted, BetsFinished, DecisionAccepted, GameJoined, GameResolved, GameStarted, WaitForBet, WaitForDecision}
 
 class GameServerMessageService(
   refOutMessageQueues: Ref[IO, Map[PlayerId, Queue[IO, ServerMessage]]]
 ) {
 
-  def gameStarted(result: Either[WrongGamePhaseError, GameStarted], playerHand: Hand): IO[Unit] =
+  def gameStarted(result: Either[WrongGamePhaseError, GameStarted]): IO[Unit] =
     result.fold(
       _ => sendMessageToAllPlayers(s"Game already started"),
-      gameStarted =>
-        sendMessageToAllPlayers(s"Game with id: ${gameStarted.gameId.value} Started") *>
-          sendMessageToAllPlayers(playerHand.asJson.noSpaces)
+      gameStarted => sendMessageToAllPlayers(s"Game with id: ${gameStarted.gameId.value} Started")
+//          *>
+//          sendMessageToAllPlayers(playerHand.asJson.noSpaces)
     )
 
   private def sendMessageToAllPlayers(message: String): IO[Unit] =
@@ -51,6 +46,37 @@ class GameServerMessageService(
         ),
       _ =>
         sendMessageToSpecificPlayer(s"Player with id: ${playerId.value} Joined the Game", playerId)
+    )
+
+  def waitingForBetsStarted(result: Either[WrongGamePhaseError, WaitForBet]): IO[Unit] =
+    result.fold(
+      _ => sendMessageToAllPlayers(s"Bets phase is over"),
+      _ => sendMessageToAllPlayers(s"Place your bets!!!")
+    )
+
+  def waitingForDecisionsStarted(result: Either[WrongGamePhaseError, BetsFinished], playerHand: Hand): IO[Unit] =
+    result.fold(
+      _ => sendMessageToAllPlayers(s"Decision phase is over"),
+      _ => sendMessageToAllPlayers(playerHand.asJson.noSpaces) *>
+        sendMessageToAllPlayers(s"Make your decisions!!!")
+    )
+
+  def betAccepted(
+    player: Player,
+    bet: Double,
+    result: Either[WrongGamePhaseError, BetAccepted]
+  ): IO[Unit] =
+    result.fold(
+      _ =>
+        sendMessageToSpecificPlayer(
+          s"Players with id: ${player.id.value} Your Bet - $bet Rejected",
+          player.id
+        ),
+      _ =>
+        sendMessageToSpecificPlayer(
+          s"Player with id: ${player.id.value} Your Bet - $bet Accepted",
+          player.id
+        )
     )
 
   def decisionAccepted(
