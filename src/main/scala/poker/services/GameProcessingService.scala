@@ -2,11 +2,10 @@ package poker.services
 
 import cats.effect.std.Queue
 import cats.effect.{IO, Ref}
-import cats.implicits.toFoldableOps
 import org.typelevel.log4cats.slf4j.Slf4jLogger
 import poker.domain.game.{GameId, GamePhase, GameState, Outcome}
-import poker.domain.player.{Decision, Hand, Player, PlayerId, PlayerState}
-import poker.domain.card.{Card, Deck, Rank, Suit}
+import poker.domain.player.{Decision, Hand, Player, PlayerId}
+import poker.domain.card.Deck
 import poker.server.{ClientMessage, ServerMessage}
 import poker.services.GameProcessingService.{
   DecisionAccepted,
@@ -15,6 +14,7 @@ import poker.services.GameProcessingService.{
   GameResolved,
   GameStarted,
   PlayerCount,
+  PlayerLeaved,
   PlayersMoved,
   WaitForDecision
 }
@@ -27,7 +27,7 @@ final case class WrongGamePhaseError(message: String) extends GameProcessingErro
 //TODO player service containing methods that trigger join and make decision from here
 class GameProcessingService(
   gameState: Ref[IO, GameState],
-  refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
+  gameServerMessageService: GameServerMessageService,
   deck: Deck[IO]
 ) {
 
@@ -76,8 +76,72 @@ class GameProcessingService(
             )
         }
       }
-      _ <- GameServerMessageService.playerJoined(refMessageQueues, result, playerId = player.id)
+      _ <- gameServerMessageService.playerJoined(result, playerId = player.id)
       _ <- logger.info(result.toString)
+    } yield result
+
+  def leaveGame(playerId: PlayerId): IO[PlayerLeaved] =
+    for {
+      result <- gameState.modify { state =>
+        val playerLeaved = PlayerLeaved(playerId)
+        state.gamePhase match {
+          case GamePhase.WaitingForPlayers(joinedPlayers) =>
+            val updatedState =
+              state.copy(gamePhase =
+                GamePhase.WaitingForPlayers(joinedPlayers.filterNot(p => p.id == playerId))
+              )
+            (updatedState, playerLeaved)
+          case GamePhase.Started(gameId, playerHand, playing) =>
+            val updatedState =
+              state.copy(gamePhase =
+                GamePhase.Started(gameId, playerHand, playing.filterNot(p => p.id == playerId))
+              )
+            (updatedState, playerLeaved)
+          case GamePhase.WaitingForDecisions(
+              gameId,
+              playerHand,
+              totalPlayers,
+              willPlay,
+              willFold
+              ) =>
+            val updatedState = state.copy(gamePhase = GamePhase.WaitingForDecisions(
+              gameId,
+              playerHand,
+              totalPlayers.filterNot(p => p.id == playerId),
+              willPlay.filterNot(p => p.id == playerId),
+              willFold.filterNot(p => p.id == playerId)
+            )
+            )
+            (updatedState, playerLeaved)
+          case GamePhase.DecisionsAccepted(gameId, playerHand, played, folded) =>
+            val updatedState = state.copy(gamePhase = GamePhase.DecisionsAccepted(
+              gameId,
+              playerHand,
+              played.filterNot(p => p.id == playerId),
+              folded.filterNot(p => p.id == playerId)
+            )
+            )
+            (updatedState, playerLeaved)
+          case GamePhase.Resolved(
+              gameId,
+              playerHand,
+              dealerHand,
+              outcome,
+              playerWithGameOutcome,
+              folded
+              ) =>
+            val updatedState = state.copy(gamePhase = GamePhase.Resolved(
+              gameId,
+              playerHand,
+              dealerHand,
+              outcome,
+              playerWithGameOutcome.filterNot(p => p.id == playerId),
+              folded.filterNot(p => p.id == playerId)
+            )
+            )
+            (updatedState, playerLeaved)
+        }
+      }
     } yield result
 
   def startNewGame(): IO[Either[WrongGamePhaseError, GameStarted]] =
@@ -105,7 +169,7 @@ class GameProcessingService(
             )
         }
       }
-      _ <- GameServerMessageService.gameStarted(refMessageQueues, result, playerHand)
+      _ <- gameServerMessageService.gameStarted(result, playerHand)
       _ <- logger.info(result.toString)
     } yield result
 
@@ -165,7 +229,7 @@ class GameProcessingService(
             )
         }
       }
-      _ <- GameServerMessageService.decisionAccepted(refMessageQueues, player, decision, result)
+      _ <- gameServerMessageService.decisionAccepted(player, decision, result)
       _ <- logger.info(result.toString)
     } yield result
 
@@ -225,7 +289,7 @@ class GameProcessingService(
             )
         }
       }
-      _ <- GameServerMessageService.gameResolved(refMessageQueues, result)
+      _ <- gameServerMessageService.gameResolved(result)
       _ <- logger.info(result.toString)
     } yield result
 
@@ -254,6 +318,9 @@ object GameProcessingService {
   final case class DecisionAccepted()
   final case class DecisionsFinished()
   final case class GameJoined()
+
+  final case class PlayerLeaved(playerd: PlayerId)
+
   final case class GameResolved(
     dealerHand: Hand,
     played: List[Player],
@@ -268,7 +335,7 @@ object GameProcessingService {
 
   def apply(
     gameState: Ref[IO, GameState],
-    refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
+    gameServerMessageService: GameServerMessageService,
     deck: Deck[IO]
-  ) = new GameProcessingService(gameState, refMessageQueues, deck)
+  ) = new GameProcessingService(gameState, gameServerMessageService, deck)
 }

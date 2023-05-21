@@ -1,12 +1,12 @@
 package poker.services
 
-import cats.effect.{IO, Ref}
 import cats.effect.std.Queue
+import cats.effect.{IO, Ref}
 import cats.implicits.toFoldableOps
 import io.circe.syntax.EncoderOps
 import poker.domain.player.{Decision, Hand, Player, PlayerId}
 import poker.server.JsonCodec.{handCodec, outcomeCodec}
-import poker.server.{ClientMessage, ServerMessage}
+import poker.server.ServerMessage
 import poker.services.GameProcessingService.{
   DecisionAccepted,
   GameJoined,
@@ -14,131 +14,80 @@ import poker.services.GameProcessingService.{
   GameStarted
 }
 
-object GameServerMessageService {
+class GameServerMessageService(
+  refOutMessageQueues: Ref[IO, Map[PlayerId, Queue[IO, ServerMessage]]]
+) {
 
-  def gameStarted(
-    refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
-    result: Either[WrongGamePhaseError, GameStarted],
-    playerHand: Hand
-  ): IO[Unit] =
+  def gameStarted(result: Either[WrongGamePhaseError, GameStarted], playerHand: Hand): IO[Unit] =
     result.fold(
-      _ => sendMessageToAllPlayers(s"Game already started", refMessageQueues),
-      gameStarted => {
-        val gameIdMessage = s"Game with ID: ${gameStarted.gameId} Started"
-        sendMessageToAllPlayers(gameIdMessage, refMessageQueues) *>
-        sendMessageToAllPlayers(playerHand.asJson.noSpaces, refMessageQueues)
-      }
+      _ => sendMessageToAllPlayers(s"Game already started"),
+      gameStarted =>
+        sendMessageToAllPlayers(s"Game with id: ${gameStarted.gameId.value} Started") *>
+          sendMessageToAllPlayers(playerHand.asJson.noSpaces)
     )
 
-  private def sendMessageToAllPlayers(
-    message: String,
-    refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]]
-  ): IO[Unit] =
+  private def sendMessageToAllPlayers(message: String): IO[Unit] =
     for {
-      messageQueues <- refMessageQueues.get
-      _ <- messageQueues.values.toList.traverse_ {
-        case (serverQueue, _) =>
-          serverQueue.offer(ServerMessage.Message(message))
+      messageQueues <- refOutMessageQueues.get
+      _ <- messageQueues.values.toList.traverse_ { serverQueue =>
+        serverQueue.offer(ServerMessage.Message(message))
       }
     } yield ()
 
-  private def sendMessageToSpecificPlayer(
-    message: String,
-    playerId: PlayerId,
-    refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]]
-  ): IO[Unit] =
+  private def sendMessageToSpecificPlayer(message: String, playerId: PlayerId): IO[Unit] =
     for {
-      messageQueues <- refMessageQueues.get
-      _ <- messageQueues.get(playerId).traverse_ {
-        case (serverQueue, _) =>
-          serverQueue.offer(ServerMessage.Message(message))
+      messageQueues <- refOutMessageQueues.get
+      _ <- messageQueues.get(playerId).traverse_ { serverQueue =>
+        serverQueue.offer(ServerMessage.Message(message))
       }
     } yield ()
 
-  def playerJoined(
-    refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
-    result: Either[WrongGamePhaseError, GameJoined],
-    playerId: PlayerId
-  ): IO[Unit] = {
-    def sendMessage(message: String, targetPlayerId: PlayerId): IO[Unit] =
-      for {
-        messageQueues <- refMessageQueues.get
-        _ <- messageQueues.get(targetPlayerId).traverse_ {
-          case (serverQueue, _) if targetPlayerId == playerId =>
-            serverQueue.offer(ServerMessage.Message(message))
-        }
-      } yield ()
-
+  def playerJoined(result: Either[WrongGamePhaseError, GameJoined], playerId: PlayerId): IO[Unit] =
     result.fold(
       _ =>
         sendMessageToSpecificPlayer(
-          s"Player with ID: ${playerId.value} cannot Join the Game",
-          playerId,
-          refMessageQueues
+          s"Player with id: ${playerId.value} cannot Join the Game",
+          playerId
         ),
       _ =>
-        sendMessageToSpecificPlayer(
-          s"Player with ID: ${playerId.value} Joined the Game",
-          playerId,
-          refMessageQueues
-        )
+        sendMessageToSpecificPlayer(s"Player with id: ${playerId.value} Joined the Game", playerId)
     )
-  }
 
   def decisionAccepted(
-    refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
     player: Player,
     decision: Decision,
     result: Either[WrongGamePhaseError, DecisionAccepted]
-  ): IO[Unit] = {
-    def sendMessage(message: String, targetPlayerId: PlayerId): IO[Unit] =
-      for {
-        messageQueues <- refMessageQueues.get
-        _ <- messageQueues.get(targetPlayerId).traverse_ {
-          case (serverQueue, _) if targetPlayerId == player.id =>
-            serverQueue.offer(ServerMessage.Message(message))
-        }
-      } yield ()
-
+  ): IO[Unit] =
     result.fold(
       _ =>
         sendMessageToSpecificPlayer(
           s"Players with id: ${player.id.value} Decision - $decision Rejected",
-          player.id,
-          refMessageQueues
+          player.id
         ),
       _ =>
         sendMessageToSpecificPlayer(
           s"Player with id: ${player.id.value} Decision - $decision Accepted",
-          player.id,
-          refMessageQueues
+          player.id
         )
     )
-  }
 
-  def gameResolved(
-    refMessageQueues: Ref[IO, Map[PlayerId, (Queue[IO, ServerMessage], Queue[IO, ClientMessage])]],
-    result: Either[WrongGamePhaseError, GameResolved]
-  ): IO[Unit] =
-    result.fold(
-      _ => {
-        val errorMessage = "An error occurred. Your bets will be refunded shortly."
-        sendMessageToAllPlayers(errorMessage, refMessageQueues)
-      },
-      gameResolved => {
-        val dealerHand = gameResolved.dealerHand
-        val outcome       = gameResolved.gameOutcome
-        val played        = gameResolved.played
-        val folded        = gameResolved.folded
-        val playedMessage = outcome.asJson.noSpaces
-        val foldedMessage = s"Game outcome: $outcome, but you auto-folded so you lose anyway ;)"
-        sendMessageToAllPlayers(dealerHand.asJson.noSpaces, refMessageQueues) *>
-          played.traverse_(
-            player => sendMessageToSpecificPlayer(playedMessage, player.id, refMessageQueues)
-          ) *>
-          folded.traverse_(
-            player => sendMessageToSpecificPlayer(foldedMessage, player.id, refMessageQueues)
-          )
-      }
-    )
+  def gameResolved(result: Either[WrongGamePhaseError, GameResolved]): IO[Unit] =
+    result.fold(_ => {
+      val errorMessage = "An error occurred. Your bets will be refunded shortly."
+      sendMessageToAllPlayers(errorMessage)
+    }, gameResolved => {
+      val dealerHand    = gameResolved.dealerHand
+      val outcome       = gameResolved.gameOutcome
+      val played        = gameResolved.played
+      val folded        = gameResolved.folded
+      val playedMessage = outcome.asJson.noSpaces
+      val foldedMessage = s"Game outcome: $outcome, but You auto-folded, so you lose anyway ;)."
+      sendMessageToAllPlayers(dealerHand.asJson.noSpaces) *>
+        played.traverse_(player => sendMessageToSpecificPlayer(playedMessage, player.id)) *>
+        folded.traverse_(player => sendMessageToSpecificPlayer(foldedMessage, player.id))
+    })
+}
+object GameServerMessageService {
+  def apply(refOutMessageQueues: Ref[IO, Map[PlayerId, Queue[IO, ServerMessage]]]) =
+    new GameServerMessageService(refOutMessageQueues)
 }
