@@ -49,9 +49,9 @@ class HandComparisonUtilSpec extends AnyFreeSpec with Matchers {
     val dealerWonOutcome = HandComparisonUtil.compare(secondPlayerHand, firstDealerHand)
     val tiedOutcome      = HandComparisonUtil.compare(secondPlayerHand, secondDealerHand)
 
-    playerWonOutcome shouldBe Outcome.PlayerWon
-    dealerWonOutcome shouldBe Outcome.DealerWon
-    tiedOutcome shouldBe Outcome.Tied
+    playerWonOutcome shouldBe Outcome.PlayerWon: Unit
+    dealerWonOutcome shouldBe Outcome.DealerWon: Unit
+    tiedOutcome shouldBe Outcome.Tied: Unit
   }
 
   "Should be expected outcomes for Pair combinations" in {
@@ -115,10 +115,10 @@ class HandComparisonUtilSpec extends AnyFreeSpec with Matchers {
     val dealerWonByThirdCard = HandComparisonUtil.compare(fourthPlayerHand, secondDealerHand)
     val tiedOutcome          = HandComparisonUtil.compare(thirdPlayerHand, secondDealerHand)
 
-    playerWonOutcome shouldBe Outcome.PlayerWon
-    dealerWonOutcome shouldBe Outcome.DealerWon
-    playerWonByThirdCard shouldBe Outcome.PlayerWon
-    dealerWonByThirdCard shouldBe Outcome.DealerWon
-    tiedOutcome shouldBe Outcome.Tied
+    playerWonOutcome shouldBe Outcome.PlayerWon: Unit
+    dealerWonOutcome shouldBe Outcome.DealerWon: Unit
+    playerWonByThirdCard shouldBe Outcome.PlayerWon: Unit
+    dealerWonByThirdCard shouldBe Outcome.DealerWon: Unit
+    tiedOutcome shouldBe Outcome.Tied: Unit
   }
 }

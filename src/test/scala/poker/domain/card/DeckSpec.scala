@@ -10,17 +10,17 @@ class DeckSpec extends AnyFreeSpec with Matchers {
   "Player and Dealer hands should contain 3 different cards" in {
     val deckIO: IO[Deck[IO]] = Deck()
     val deck: Deck[IO] = deckIO.unsafeRunSync()
-    deck.resetAndShuffle
+    deck.resetAndShuffle: Unit
 
     val playerHand: Hand = deck.drawCards(isPlayerHand = true).unsafeRunSync()
     val dealerHand: Hand = deck.drawCards(isPlayerHand = false).unsafeRunSync()
 
-    playerHand.cards should have size 3
-    dealerHand.cards should have size 3
+    playerHand.cards should have size 3: Unit
+    dealerHand.cards should have size 3: Unit
 
     val allCards = playerHand.cards ++ dealerHand.cards
 
     val distinctCards = allCards.distinct
-    distinctCards should have size 6
+    distinctCards should have size 6: Unit
   }
 }

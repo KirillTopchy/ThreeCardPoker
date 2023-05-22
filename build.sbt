@@ -11,6 +11,7 @@ val scalaTestVersion    = "3.2.15"
 val circeVersion        = "0.14.5"
 val loggerVersion       = "2.0.5"
 val scalaLoggingVersion = "3.9.5"
+val mockitoVersion      = "3.2.10.0"
 
 libraryDependencies ++= Seq(
   "org.http4s"                 %% "http4s-dsl"             % http4sVersion,
@@ -18,6 +19,7 @@ libraryDependencies ++= Seq(
   "org.http4s"                 %% "http4s-ember-client"    % http4sVersion,
   "org.http4s"                 %% "http4s-jdk-http-client" % "0.9.0",
   "org.scalatest"              %% "scalatest"              % scalaTestVersion % Test,
+  "org.scalatestplus"          %% "mockito-3-4"            % mockitoVersion % Test,
   "io.circe"                   %% "circe-generic"          % circeVersion,
   "io.circe"                   %% "circe-parser"           % circeVersion,
   "org.slf4j"                  % "slf4j-simple"            % loggerVersion,
