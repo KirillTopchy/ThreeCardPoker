@@ -55,14 +55,14 @@ class HandSpec extends AnyFreeSpec with Matchers {
   )
 
   "Hand rank should be evaluated correctly" - {
-    handKs2c5d.combination shouldBe HighCard
-    handKsKc5d.combination shouldBe Pair
-    handQh2h7h.combination shouldBe Flush
-    hand2h3d4h.combination shouldBe Straight
-    hand7s7d7c.combination shouldBe ThreeOfAKind
-    handJd9d10d.combination shouldBe StraightFlush
-    handAh2h3h.combination shouldBe StraightFlush
-    handAhQhKh.combination shouldBe StraightFlush
-    handAh2h3d.combination shouldBe Straight
+    handKs2c5d.combination shouldBe HighCard: Unit
+    handKsKc5d.combination shouldBe Pair: Unit
+    handQh2h7h.combination shouldBe Flush: Unit
+    hand2h3d4h.combination shouldBe Straight: Unit
+    hand7s7d7c.combination shouldBe ThreeOfAKind: Unit
+    handJd9d10d.combination shouldBe StraightFlush: Unit
+    handAh2h3h.combination shouldBe StraightFlush: Unit
+    handAhQhKh.combination shouldBe StraightFlush: Unit
+    handAh2h3d.combination shouldBe Straight: Unit
   }
 }
