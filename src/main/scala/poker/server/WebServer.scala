@@ -1,7 +1,7 @@
 package poker.server
 
 import cats.effect.std.Queue
-import cats.effect.{ExitCode, IO, IOApp, Ref}
+import cats.effect.{IO, IOApp, Ref}
 import cats.implicits.catsSyntaxApplicativeId
 import com.comcast.ip4s._
 import org.http4s.HttpApp
@@ -21,23 +21,8 @@ import poker.services.{
 
 import scala.concurrent.duration.DurationInt
 
-object WebServer extends IOApp {
-  private def httpApp(
-    refOutMessageQueues: Ref[IO, Map[PlayerId, Queue[IO, ServerMessage]]],
-    gameProcessingService: GameProcessingService,
-    clientMessageProcessingService: ClientMessageProcessingService,
-    logger: SelfAwareStructuredLogger[IO]
-  )(wsb: WebSocketBuilder2[IO]): HttpApp[IO] = {
-    val routes = PokerRoutes.apply(
-      refOutMessageQueues,
-      gameProcessingService,
-      clientMessageProcessingService,
-      logger
-    )
-    routes.createRoute(wsb)
-  }.orNotFound
-
-  override def run(args: List[String]): IO[ExitCode] =
+object WebServer extends IOApp.Simple {
+  override def run: IO[Unit] =
     for {
       refOutMessageQueues <- Ref
         .of[IO, Map[PlayerId, Queue[IO, ServerMessage]]](Map.empty)
@@ -53,7 +38,7 @@ object WebServer extends IOApp {
         .apply(gameProcessingService, clientMessageServiceLogger)
         .pure[IO]
       pokerRoutesLogger <- Slf4jLogger.fromName[IO]("poker-routes")
-      _ <- EmberServerBuilder
+      result <- EmberServerBuilder
         .default[IO]
         .withHost(ipv4"127.0.0.1")
         .withPort(port"9000")
@@ -69,5 +54,21 @@ object WebServer extends IOApp {
         .build
         .both(gameEngine.startGameEngine.background)
         .useForever
-    } yield ExitCode.Success
+        .void
+    } yield result
+
+  private def httpApp(
+    refOutMessageQueues: Ref[IO, Map[PlayerId, Queue[IO, ServerMessage]]],
+    gameProcessingService: GameProcessingService,
+    clientMessageProcessingService: ClientMessageProcessingService,
+    logger: SelfAwareStructuredLogger[IO]
+  )(wsb: WebSocketBuilder2[IO]): HttpApp[IO] = {
+    val routes = PokerRoutes.apply(
+      refOutMessageQueues,
+      gameProcessingService,
+      clientMessageProcessingService,
+      logger
+    )
+    routes.createRoute(wsb)
+  }.orNotFound
 }

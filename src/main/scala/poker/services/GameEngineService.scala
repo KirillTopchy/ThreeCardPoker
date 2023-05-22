@@ -1,11 +1,8 @@
 package poker.services
 
-import cats.effect.{IO, Ref}
-import cats.effect.std.Queue
+import cats.effect.IO
 import org.typelevel.log4cats.Logger
 import org.typelevel.log4cats.slf4j.Slf4jLogger
-import poker.domain.player.PlayerId
-import poker.server.{ClientMessage, ServerMessage}
 
 import scala.concurrent.duration._
 

@@ -4,14 +4,13 @@ import poker.domain.game.Outcome
 import poker.domain.player.{Hand, Pair}
 
 object HandComparisonUtil {
-  def compare(playerHand: Hand, dealerHand: Hand): Outcome = {
+  def compare(playerHand: Hand, dealerHand: Hand): Outcome =
     if (playerHand.combination.rank > dealerHand.combination.rank)
       Outcome.PlayerWon
     else if (playerHand.combination.rank < dealerHand.combination.rank)
       Outcome.DealerWon
     else
       compareHandsWithEqualRanks(playerHand, dealerHand)
-  }
 
   private def compareHandsWithEqualRanks(playerHand: Hand, dealerHand: Hand): Outcome =
     playerHand.combination match {

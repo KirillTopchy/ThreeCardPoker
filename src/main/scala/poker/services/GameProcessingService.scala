@@ -314,7 +314,7 @@ object GameProcessingService {
   final case class DecisionsFinished()
   final case class GameJoined()
 
-  final case class PlayerLeaved(playerd: PlayerId)
+  final case class PlayerLeaved(player: PlayerId)
 
   final case class GameResolved(
     dealerHand: Hand,
