@@ -7,7 +7,16 @@ import io.circe.syntax.EncoderOps
 import poker.domain.player.{Decision, Hand, Player, PlayerId}
 import poker.server.JsonCodec.{handCodec, outcomeCodec}
 import poker.server.ServerMessage
-import poker.services.GameProcessingService.{BetAccepted, BetsFinished, DecisionAccepted, GameJoined, GameResolved, GameStarted, WaitForBet, WaitForDecision}
+import poker.services.GameProcessingService.{
+  BetAccepted,
+  BetsFinished,
+  DecisionAccepted,
+  GameJoined,
+  GameResolved,
+  GameStarted,
+  WaitForBet,
+  WaitForDecision
+}
 
 class GameServerMessageService(
   refOutMessageQueues: Ref[IO, Map[PlayerId, Queue[IO, ServerMessage]]]
@@ -17,8 +26,6 @@ class GameServerMessageService(
     result.fold(
       _ => sendMessageToAllPlayers(s"Game already started"),
       gameStarted => sendMessageToAllPlayers(s"Game with id: ${gameStarted.gameId.value} Started")
-//          *>
-//          sendMessageToAllPlayers(playerHand.asJson.noSpaces)
     )
 
   private def sendMessageToAllPlayers(message: String): IO[Unit] =
@@ -54,11 +61,15 @@ class GameServerMessageService(
       _ => sendMessageToAllPlayers(s"Place your bets!!!")
     )
 
-  def waitingForDecisionsStarted(result: Either[WrongGamePhaseError, BetsFinished], playerHand: Hand): IO[Unit] =
+  def waitingForDecisionsStarted(
+    result: Either[WrongGamePhaseError, BetsFinished],
+    playerHand: Hand
+  ): IO[Unit] =
     result.fold(
       _ => sendMessageToAllPlayers(s"Decision phase is over"),
-      _ => sendMessageToAllPlayers(playerHand.asJson.noSpaces) *>
-        sendMessageToAllPlayers(s"Make your decisions!!!")
+      _ =>
+        sendMessageToAllPlayers(playerHand.asJson.noSpaces) *>
+          sendMessageToAllPlayers(s"Make your decisions!!!")
     )
 
   def betAccepted(
@@ -98,20 +109,39 @@ class GameServerMessageService(
     )
 
   def gameResolved(result: Either[WrongGamePhaseError, GameResolved]): IO[Unit] =
-    result.fold(_ => {
-      val errorMessage = "An error occurred. Your bets will be refunded shortly."
-      sendMessageToAllPlayers(errorMessage)
-    }, gameResolved => {
-      val dealerHand    = gameResolved.dealerHand
-      val outcome       = gameResolved.gameOutcome
-      val played        = gameResolved.played
-      val folded        = gameResolved.folded
-      val playedMessage = outcome.asJson.noSpaces
-      val foldedMessage = s"Game outcome: $outcome, but You folded, so its lose anyway ;)."
-      sendMessageToAllPlayers(dealerHand.asJson.noSpaces) *>
-        played.traverse_(player => sendMessageToSpecificPlayer(playedMessage, player.id)) *>
-        folded.traverse_(player => sendMessageToSpecificPlayer(foldedMessage, player.id))
-    })
+    result.fold(
+      _ => {
+        val errorMessage = "An error occurred. Your bets will be refunded shortly."
+        sendMessageToAllPlayers(errorMessage)
+      },
+      gameResolved => {
+        val dealerHand    = gameResolved.dealerHand
+        val outcome       = gameResolved.gameOutcome
+        val playerWhoBet  = gameResolved.playersWhoBet
+        val played        = gameResolved.played
+        val folded        = gameResolved.folded
+        val playedMessage = outcome.asJson.noSpaces
+        val foldedMessage = s"Game outcome: $outcome, but You folded, so its lose anyway ;)."
+        sendMessageToAllPlayers(dealerHand.asJson.noSpaces) *>
+          sendMessageToAllPlayers(outcome.asJson.noSpaces) *>
+          played.traverse_(
+            player =>
+              sendMessageToSpecificPlayer(
+                s"Your total bet: ${player.bet}, new balance: ${player.balance}",
+                player.id
+              )
+          ) *>
+          folded.traverse_(
+            player =>
+              sendMessageToSpecificPlayer(
+                "sYour total bet: ${player.bet}, new balance: ${player.balance}",
+                player.id
+              )
+          ) *>
+          //folded.traverse_(player => sendMessageToSpecificPlayer(foldedMessage, player.id)) *>
+          sendMessageToAllPlayers("Next game will start shortly")
+      }
+    )
 }
 object GameServerMessageService {
   def apply(refOutMessageQueues: Ref[IO, Map[PlayerId, Queue[IO, ServerMessage]]]) =

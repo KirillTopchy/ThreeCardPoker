@@ -21,6 +21,11 @@ import poker.services.GameProcessingService.{
 }
 
 import java.util.UUID
+import scala.collection.convert.ImplicitConversions.{
+  `collection asJava`,
+  `map AsJavaMap`,
+  `seq AsJavaList`
+}
 
 sealed trait GameProcessingErrors
 final case class WrongGamePhaseError(message: String) extends GameProcessingErrors
@@ -97,10 +102,27 @@ class GameProcessingService(
                 GamePhase.Started(gameId, playing.filterNot(p => p.id == playerId))
               )
             (updatedState, playerLeaved)
+          case GamePhase.WaitingForBets(gameId, totalPlayers, playersBets) =>
+            val updatedState = state.copy(gamePhase = GamePhase.WaitingForBets(
+              gameId,
+              totalPlayers.filterNot(p => p.id == playerId),
+              playersBets.filterNot(_._1 == playerId)
+            )
+            )
+            (updatedState, playerLeaved)
+          case GamePhase.BetsAccepted(gameId, totalPlayers, playersBets, hand) =>
+            val updatedState = state.copy(gamePhase = GamePhase.BetsAccepted(
+              gameId,
+              totalPlayers.filterNot(p => p.id == playerId),
+              playersBets.filterNot(_._1 == playerId),
+              hand
+            )
+            )
+            (updatedState, playerLeaved)
           case GamePhase.WaitingForDecisions(
               gameId,
               totalPlayers,
-              playersWhoBet,
+              playersBets,
               willPlay,
               willFold,
               playerHand
@@ -108,19 +130,28 @@ class GameProcessingService(
             val updatedState = state.copy(gamePhase = GamePhase.WaitingForDecisions(
               gameId,
               totalPlayers.filterNot(p => p.id == playerId),
+              playersBets.filterNot(_._1 == playerId),
               willPlay.filterNot(p => p.id == playerId),
               willFold.filterNot(p => p.id == playerId),
-              playersWhoBet.filterNot(p => p.id == playerId),
               playerHand
             )
             )
             (updatedState, playerLeaved)
-          case GamePhase.DecisionsAccepted(gameId, playerHand, played, folded) =>
+          case GamePhase.DecisionsAccepted(
+              gameId,
+              totalPlayers,
+              playersBets,
+              played,
+              folded,
+              playerHand
+              ) =>
             val updatedState = state.copy(gamePhase = GamePhase.DecisionsAccepted(
               gameId,
-              playerHand,
+              totalPlayers.filterNot(p => p.id == playerId),
+              playersBets.filterNot(_._1 == playerId),
               played.filterNot(p => p.id == playerId),
-              folded.filterNot(p => p.id == playerId)
+              folded.filterNot(p => p.id == playerId),
+              playerHand
             )
             )
             (updatedState, playerLeaved)
@@ -129,7 +160,9 @@ class GameProcessingService(
               playerHand,
               dealerHand,
               outcome,
-              playerWithGameOutcome,
+              totalPlayers,
+          playersBets,
+              played,
               folded
               ) =>
             val updatedState = state.copy(gamePhase = GamePhase.Resolved(
@@ -137,7 +170,9 @@ class GameProcessingService(
               playerHand,
               dealerHand,
               outcome,
-              playerWithGameOutcome.filterNot(p => p.id == playerId),
+              totalPlayers.filterNot(p => p.id == playerId),
+              playersBets.filterNot(_._1 == playerId),
+              played.filterNot(p => p.id == playerId),
               folded.filterNot(p => p.id == playerId)
             )
             )
@@ -180,7 +215,7 @@ class GameProcessingService(
         state.gamePhase match {
           case GamePhase.Started(gameId, players) =>
             val updatedState =
-              state.copy(gamePhase = GamePhase.WaitingForBets(gameId, players, Nil))
+              state.copy(gamePhase = GamePhase.WaitingForBets(gameId, players, Map.empty))
 
             (updatedState, Right(WaitForBet()))
           case phase =>
@@ -207,7 +242,7 @@ class GameProcessingService(
           case GamePhase.WaitingForBets(gameId, allConnectedPlayers, playersWhoBet)
               if allConnectedPlayers.exists(_.id == player.id) =>
             val updatedState = state.copy(gamePhase = GamePhase
-              .WaitingForBets(gameId, allConnectedPlayers, playersWhoBet :+ player)
+              .WaitingForBets(gameId, allConnectedPlayers, playersWhoBet.updated(player.id, bet))
             )
             (updatedState, Right(BetAccepted()))
 
@@ -296,7 +331,7 @@ class GameProcessingService(
               willFold,
               playerHand
               )
-              if playersWhoBet.exists(_.id == player.id) &&
+              if playersWhoBet.keys.contains(player.id) &&
                 !willPlay.exists(_.id == player.id) &&
                 !willFold.exists(_.id == player.id) =>
             val updatedState = decision match {
@@ -352,12 +387,20 @@ class GameProcessingService(
             decidedToFold,
             playerHand
             ) =>
-          val autoFolded = totalPlayers.diff(decidedToPlay ++ decidedToFold)
+          val playersWhoBetIds = playersWhoBet.keySet
+          val playersWithBet = totalPlayers.filter(player => playersWhoBetIds.contains(player.id))
+          val autoFolded = playersWithBet.diff(decidedToPlay ++ decidedToFold)
 
           val totalFolded = decidedToFold ++ autoFolded
           val updatedState =
-            state.copy(gamePhase =
-              GamePhase.DecisionsAccepted(gameId, playerHand, decidedToPlay, totalFolded)
+            state.copy(gamePhase = GamePhase.DecisionsAccepted(
+              gameId,
+              totalPlayers,
+              playersWhoBet,
+              decidedToPlay,
+              totalFolded,
+              playerHand
+            )
             )
           (updatedState, Right(DecisionsFinished()))
         case phase =>
@@ -379,12 +422,34 @@ class GameProcessingService(
       dealerHand <- deck.drawCards(isPlayerHand = false)
       result <- gameState.modify { state =>
         state.gamePhase match {
-          case GamePhase.DecisionsAccepted(gameId, playerHand, played, folded) =>
+          case GamePhase.DecisionsAccepted(
+              gameId,
+              totalPlayers,
+              playersWhoBet,
+              played,
+              folded,
+              playerHand
+              ) =>
             val gameOutcome = HandComparisonUtil.compare(playerHand, dealerHand)
-            val updatedState = state.copy(gamePhase =
-              GamePhase.Resolved(gameId, playerHand, dealerHand, gameOutcome, played, folded)
+            val updatedState = state.copy(gamePhase = GamePhase.Resolved(
+              gameId,
+              playerHand,
+              dealerHand,
+              gameOutcome,
+              totalPlayers,
+              playersWhoBet,
+              played,
+              folded
             )
-            (updatedState, Right(GameResolved(dealerHand, played, folded, gameOutcome)))
+            )
+            updatePlayerBalance(playersWhoBet, played, folded, gameOutcome)
+
+            (
+              updatedState,
+              Right(
+                GameResolved(dealerHand, totalPlayers, playersWhoBet, played, folded, gameOutcome)
+              )
+            )
           case phase =>
             (
               state,
@@ -403,10 +468,9 @@ class GameProcessingService(
   def waitNextGamePlayers(): IO[Either[WrongGamePhaseError, PlayersMoved]] =
     gameState.modify { state =>
       state.gamePhase match {
-        case GamePhase.Resolved(_, _, _, _, played, folded) =>
-          val playersForNextRound = played ++ folded
+        case GamePhase.Resolved(_, _, _, _, totalPlayers, _, _, _) =>
           val updatedState =
-            state.copy(gamePhase = GamePhase.WaitingForPlayers(playersForNextRound))
+            state.copy(gamePhase = GamePhase.WaitingForPlayers(totalPlayers))
           (updatedState, Right(PlayersMoved()))
         case phase =>
           (
@@ -419,6 +483,69 @@ class GameProcessingService(
           )
       }
     }
+
+  private def updatePlayerBalance(
+                                   playersWhoBet: Map[PlayerId, Double],
+                                   played: List[Player],
+                                   folded: List[Player],
+                                   outcome: Outcome
+                                 ): Unit = {
+    playersWhoBet.foreach {
+      case (playerId, betAmount) =>
+        val player = findPlayerById(playerId, played ++ folded)
+        player.foreach { p =>
+          if (folded.contains(p)) {
+            val updatedPlayer = p.updateBalance(-betAmount)
+            replacePlayerInListsAndMap(p, updatedPlayer, played, folded, playersWhoBet)
+          } else if (played.contains(p)) {
+            outcome match {
+              case Outcome.PlayerWon =>
+                val updatedPlayer = p.updateBalance(2 * betAmount)
+                replacePlayerInListsAndMap(p, updatedPlayer, played, folded, playersWhoBet)
+              case Outcome.DealerWon =>
+                val updatedPlayer = p.updateBalance(-2 * betAmount)
+                replacePlayerInListsAndMap(p, updatedPlayer, played, folded, playersWhoBet)
+              case _ => // No balance updates needed for tied outcome
+            }
+          }
+        }
+    }
+  }
+
+  private def findPlayerById(playerId: PlayerId, players: List[Player]): Option[Player] = {
+    players.find(_.id == playerId)
+  }
+
+  private def replacePlayerInListsAndMap(
+                                          oldPlayer: Player,
+                                          newPlayer: Player,
+                                          played: List[Player],
+                                          folded: List[Player],
+                                          playersWhoBet: Map[PlayerId, Double]
+                                        ): Unit = {
+    val updatedPlayersWhoBet = playersWhoBet.updated(oldPlayer.id, newPlayer.balance)
+
+    val updatedPlayed = played.map {
+      case p if p.id == oldPlayer.id => newPlayer
+      case p => p
+    }
+
+    val updatedFolded = folded.map {
+      case p if p.id == oldPlayer.id => newPlayer
+      case p => p
+    }
+
+    played.clear()
+    played.addAll(updatedPlayed)
+
+    folded.clear()
+    folded.addAll(updatedFolded)
+
+    playersWhoBet.clear()
+    playersWhoBet.addAll(updatedPlayersWhoBet)
+  }
+
+
 }
 
 object GameProcessingService {
@@ -428,10 +555,12 @@ object GameProcessingService {
   final case class BetsFinished()
   final case class GameJoined()
 
-  final case class PlayerLeaved(playerd: PlayerId)
+  final case class PlayerLeaved(player: PlayerId)
 
   final case class GameResolved(
     dealerHand: Hand,
+    totalPlayers: List[Player],
+    playersWhoBet: Map[PlayerId, Double],
     played: List[Player],
     folded: List[Player],
     gameOutcome: Outcome

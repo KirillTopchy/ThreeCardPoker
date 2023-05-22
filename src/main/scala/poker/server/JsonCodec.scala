@@ -38,9 +38,16 @@ object JsonCodec {
   implicit val playerIdCodec: Codec[PlayerId]       = deriveCodec[PlayerId]
   implicit val playerCodec: Codec[Player]           = deriveCodec[Player]
   implicit val outcomeCodec: Codec[Outcome]         = deriveCodec[Outcome]
+
+  implicit val playerIdKeyEncoder: KeyEncoder[PlayerId] = (playerId: PlayerId) =>
+    playerId.value.toString
+
+  implicit val playerIdKeyDecoder: KeyDecoder[PlayerId] = (key: String) =>
+    Some(PlayerId(UUID.fromString(key)))
+
   implicit val gamePhaseCodec: Codec[GamePhase]     = deriveCodec[GamePhase]
   implicit val playerKeyEncoder: KeyEncoder[Player] = (p: Player) => p.id.toString
   implicit val playerKeyDecoder: KeyDecoder[Player] = (key: String) =>
-    Some(Player(PlayerId(UUID.fromString(key)), balance = 0))
+    Some(Player(PlayerId(UUID.fromString(key)), balance = 0, bet = 0))
   implicit val gameStateCodec: Codec[GameState] = deriveCodec[GameState]
 }

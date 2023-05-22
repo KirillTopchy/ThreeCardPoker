@@ -23,11 +23,11 @@ class GameEngineService(gameProcessingService: GameProcessingService)(logger: Lo
               gameProcessingService.waitForBets() *>
               IO.sleep(10.seconds) *>
               gameProcessingService.betsFinished() *>
-              IO.sleep(2.seconds) *>
+              IO.sleep(1.seconds) *>
               gameProcessingService.waitForDecisions() *>
               IO.sleep(10.seconds) *>
               gameProcessingService.decisionsFinished() *>
-              IO.sleep(2.seconds) *>
+              IO.sleep(1.seconds) *>
               gameProcessingService.resolveGame() *>
               IO.sleep(2.seconds) *>
               gameProcessingService.waitNextGamePlayers() *> loop()
