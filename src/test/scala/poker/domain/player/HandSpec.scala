@@ -1,9 +1,8 @@
-package poker
+package poker.domain.player
 
 import org.scalatest.freespec.AnyFreeSpec
 import org.scalatest.matchers.should.Matchers
 import poker.domain.card.{Card, Rank, Suit}
-import poker.domain.player.{Flush, Hand, HighCard, Pair, Straight, StraightFlush, ThreeOfAKind}
 
 class HandSpec extends AnyFreeSpec with Matchers {
   val handKs2c5d: Hand = Hand(
