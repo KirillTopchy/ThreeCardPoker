@@ -37,6 +37,23 @@ The following technologies were used to develop this application:
 - Cats Logging
 - HTML/CSS/JavaScript
 
+## Project Main Components
+These components form the core functionality of the project, enabling the hosting and management of a poker game through a web server.
+
+- **WebServer**: Represents a web server that hosts a poker game. It is responsible for establishing WebSocket connections and starting the Game Engine as a background task.
+
+- **PokerRoutes**: Provides the implementation of HTTP routes for the poker server. It handles WebSocket connections, processes incoming client messages, and sends server messages to clients.
+
+- **ClientMessageProcessingService**: Handles client messages/commands, such as player join requests and player decisions, and delegates the processing to the game processing service.
+
+- **GameEngineService**: Responsible for managing the flow of the game. It repeatedly executes methods from the game processing service based on the current game state. This component waits for players to join, starts a new game, waits for player decisions, resolves the game, and repeats the process for subsequent games.
+
+- **GameProcessingService**: Handles the logic related to game phases, player actions, and game state transitions. The service maintains the current game state using a mutable Ref from the Cats Effect library. It interacts with the game server message service and the deck to perform various operations.
+
+- **GameServerMessageService**: Handles game-related messages and sends them to players. It provides methods for various game events such as game start, player join, decision acceptance, and game resolution.
+
+- **HandComparisonUtil**: Provides utility methods for comparing hands in a poker game. This component is used to determine the outcome of a player's hand compared to the dealer's hand.
+
 ## Project Visual Representation
 
 ![20230523_191201](https://github.com/KirillTopchy/ThreeCardPoker/assets/89339107/f0f126c2-8f55-4025-8820-7e60230009aa)
