@@ -36,3 +36,8 @@ The following technologies were used to develop this application:
 - Cats Effects
 - Cats Logging
 - HTML/CSS/JavaScript
+
+## Project Visual Representation
+
+![20230523_191201](https://github.com/KirillTopchy/ThreeCardPoker/assets/89339107/f0f126c2-8f55-4025-8820-7e60230009aa)
+
